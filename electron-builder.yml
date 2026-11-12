@@ -1,0 +1,46 @@
+appId: com.thedandarak.vavilon
+productName: Vavilon
+copyright: Copyright © 2026 TheDanDARAK
+
+directories:
+  buildResources: resources
+  output: release
+
+# electron-vite output: out/main (main), out/preload, out/renderer
+files:
+  - out/**
+  - "!**/*.tsbuildinfo"
+
+asar: true
+
+# external binaries bundled next to the app (not inside asar):
+# resources/binaries/ludusavi.exe -> <install>\resources\binaries\ludusavi.exe
+extraResources:
+  - from: resources/binaries
+    to: binaries
+    filter:
+      - "**/*"
+  - from: resources/tray.png
+    to: tray.png
+
+win:
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Vavilon
+  artifactName: ${productName}-${version}-setup.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
