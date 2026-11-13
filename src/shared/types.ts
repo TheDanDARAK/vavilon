@@ -99,6 +99,75 @@ export interface AchievementUnlockEvent {
   rarity?: number
 }
 
+/* ============================================================
+   Storefront (RAWG catalogue): types shared across the bridge
+   ============================================================ */
+
+/** One game card shown in the storefront */
+export interface StoreGame {
+  id: number
+  name: string
+  coverUrl?: string
+  /** Release date as "YYYY-MM-DD" */
+  released?: string
+  /** RAWG user rating (0..5) */
+  rating?: number
+  /** Metacritic score, when known */
+  metacritic?: number
+  genres?: string[]
+}
+
+/** Full storefront game details, fetched on demand when a card is opened */
+export interface StoreGameDetails extends StoreGame {
+  description?: string
+  website?: string
+  screenshots?: GameScreenshot[]
+}
+
+/** Recommended batch: games + the genre slugs they were picked by */
+export interface StoreRecommendation {
+  games: StoreGame[]
+  /** Empty list → the fallback "popular now" feed */
+  basisSlugs: string[]
+}
+
+/** Generic storefront request result (main never throws to the renderer) */
+export interface StoreResult<T> {
+  ok: boolean
+  data?: T
+  error?: string
+  /** true → the user must enter a RAWG API key in settings first */
+  needKey?: boolean
+}
+
+/** Wishlist entry, persisted inside library.json next to the games */
+export interface WishlistEntry extends StoreGame {
+  addedAt: number
+}
+
+/** Genres available as storefront filters (RAWG slugs, Russian labels) */
+export interface StoreGenre {
+  slug: string
+  label: string
+}
+
+export const STORE_GENRES: StoreGenre[] = [
+  { slug: 'action', label: 'Экшен' },
+  { slug: 'role-playing-games-rpg', label: 'RPG' },
+  { slug: 'shooter', label: 'Шутеры' },
+  { slug: 'strategy', label: 'Стратегии' },
+  { slug: 'adventure', label: 'Приключения' },
+  { slug: 'simulation', label: 'Симуляторы' },
+  { slug: 'platformer', label: 'Платформеры' },
+  { slug: 'puzzle', label: 'Головоломки' },
+  { slug: 'racing', label: 'Гонки' },
+  { slug: 'sports', label: 'Спорт' },
+  { slug: 'indie', label: 'Инди' },
+  { slug: 'casual', label: 'Казуальные' },
+  { slug: 'fighting', label: 'Файтинги' },
+  { slug: 'massively-multiplayer', label: 'MMO' }
+]
+
 /** General behaviour of the launcher (tray, autostart) */
 export interface GeneralSettings {
   /** Start the launcher when Windows starts */

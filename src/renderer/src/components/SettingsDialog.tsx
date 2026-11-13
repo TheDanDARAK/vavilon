@@ -4,7 +4,7 @@ import type { AchievementSettings, GeneralSettings } from '../../../shared/types
 
 /**
  * Full settings dialog: window behaviour (tray, autostart), achievements
- * (notifications, watchdog interval) and misc toggles.
+ * (notifications, watchdog interval), storefront (RAWG key) and misc toggles.
  * Cloud-saves settings live in their own sidebar section.
  */
 
@@ -18,10 +18,12 @@ const POLL_CHOICES = [
 export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [general, setGeneral] = useState<GeneralSettings | null>(null)
   const [ach, setAch] = useState<AchievementSettings | null>(null)
+  const [storeKey, setStoreKey] = useState('')
 
   useEffect(() => {
     void window.api.getGeneralSettings().then(setGeneral)
     void window.api.getAchSettings().then(setAch)
+    void window.api.storeGetKey().then(setStoreKey)
   }, [])
 
   const patchGeneral = async (part: Partial<GeneralSettings>): Promise<void> => {
@@ -114,6 +116,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
             </div>
           </div>
         )}
+
+        <div className="settings-group">
+          <div className="settings-group-title">Витрина (каталог игр)</div>
+          <div className="field">
+            <span>Ключ RAWG API — нужен для новинок и рекомендаций</span>
+            <input
+              value={storeKey}
+              onChange={(e) => setStoreKey(e.target.value)}
+              placeholder="Вставьте ключ…"
+            />
+            <small className="store-key-hint">
+              Бесплатный персональный ключ выдаётся на rawg.io/apidocs за минуту.
+            </small>
+          </div>
+          <div className="dialog-actions">
+            <button
+              className="btn"
+              onClick={() => window.open('https://rawg.io/apidocs')}
+            >
+              Получить ключ ↗
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => void window.api.storeSetKey(storeKey.trim())}
+            >
+              Сохранить ключ
+            </button>
+          </div>
+        </div>
 
         <div className="dialog-actions">
           <button className="btn btn-primary" onClick={onClose}>

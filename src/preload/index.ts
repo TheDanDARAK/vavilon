@@ -7,7 +7,12 @@ import type {
   GameMetadata,
   SavesSettings,
   SavesStatusPayload,
-  SteamSearchHit
+  SteamSearchHit,
+  StoreGame,
+  StoreGameDetails,
+  StoreRecommendation,
+  StoreResult,
+  WishlistEntry
 } from '../shared/types'
 
 const api = {
@@ -33,6 +38,30 @@ const api = {
     ipcRenderer.invoke('metadata:apply', gameId, metadata),
   syncGameMetadata: (gameId: string): Promise<{ ok: boolean; message?: string }> =>
     ipcRenderer.invoke('metadata:sync', gameId),
+  /** Storefront (RAWG): the API key plus catalogue requests */
+  storeGetKey: (): Promise<string> => ipcRenderer.invoke('store:getKey'),
+  storeSetKey: (key: string): Promise<string> => ipcRenderer.invoke('store:setKey', key),
+  storeNewReleases: (genre?: string): Promise<StoreResult<StoreGame[]>> =>
+    ipcRenderer.invoke('store:newReleases', genre),
+  storeRecommend: (): Promise<StoreResult<StoreRecommendation>> =>
+    ipcRenderer.invoke('store:recommend'),
+  storeDetails: (id: number): Promise<StoreResult<StoreGameDetails>> =>
+    ipcRenderer.invoke('store:details', id),
+  storeSearch: (term: string): Promise<StoreResult<StoreGame[]>> =>
+    ipcRenderer.invoke('store:search', term),
+  /** "Similar" suggestions: for a library game (resolved by name) or a RAWG id */
+  storeSimilarForGame: (
+    gameId: string
+  ): Promise<StoreResult<{ games: StoreGame[]; source?: string }>> =>
+    ipcRenderer.invoke('store:similarForGame', gameId),
+  storeSimilar: (id: number): Promise<StoreResult<StoreGame[]>> =>
+    ipcRenderer.invoke('store:similar', id),
+  /** Wishlist, persisted inside library.json */
+  storeWishlistGet: (): Promise<WishlistEntry[]> => ipcRenderer.invoke('store:wishlist:get'),
+  storeWishlistAdd: (entry: WishlistEntry): Promise<WishlistEntry[]> =>
+    ipcRenderer.invoke('store:wishlist:add', entry),
+  storeWishlistRemove: (id: number): Promise<WishlistEntry[]> =>
+    ipcRenderer.invoke('store:wishlist:remove', id),
   /** Absolute path of a dropped file (webUtils works in the sandboxed preload). */
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   launchGame: (id: string): Promise<boolean> => ipcRenderer.invoke('games:launch', id),

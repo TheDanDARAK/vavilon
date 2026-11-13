@@ -1,13 +1,14 @@
 import { ipcMain, dialog, app, BrowserWindow } from 'electron'
 import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, mkdirSync, rmSync, readdirSync } from 'fs'
 import { join, dirname, basename, extname } from 'path'
-import type { Game } from '../shared/types'
+import type { Game, WishlistEntry } from '../shared/types'
 
-export type { Game, AchievementRecord } from '../shared/types'
+export type { Game, AchievementRecord, WishlistEntry } from '../shared/types'
 
 interface LibraryFile {
   version: number
   games: Game[]
+  wishlist?: WishlistEntry[]
 }
 
 const LIBRARY_VERSION = 1
@@ -45,13 +46,17 @@ function loadLibrary(): LibraryFile {
     try {
       const data = JSON.parse(readFileSync(path, 'utf-8')) as LibraryFile
       if (Array.isArray(data.games)) {
-        return { version: LIBRARY_VERSION, games: data.games }
+        return {
+          version: LIBRARY_VERSION,
+          games: data.games,
+          wishlist: Array.isArray(data.wishlist) ? data.wishlist : []
+        }
       }
     } catch {
       // missing or corrupted — try the next source
     }
   }
-  return { version: LIBRARY_VERSION, games: [] }
+  return { version: LIBRARY_VERSION, games: [], wishlist: [] }
 }
 
 function saveLibrary(lib: LibraryFile): void {
@@ -60,6 +65,33 @@ function saveLibrary(lib: LibraryFile): void {
 
 export function getGames(): Game[] {
   return loadLibrary().games
+}
+
+/* ---------- wishlist (storefront "хочу поиграть") ---------- */
+
+export function getWishlist(): WishlistEntry[] {
+  return loadLibrary().wishlist ?? []
+}
+
+export function addToWishlist(entry: WishlistEntry): WishlistEntry[] {
+  const lib = loadLibrary()
+  lib.wishlist ??= []
+  if (!lib.wishlist.some((w) => w.id === entry.id)) {
+    lib.wishlist.push({ ...entry, addedAt: Date.now() })
+    saveLibrary(lib)
+    broadcastChange()
+  }
+  return lib.wishlist
+}
+
+export function removeFromWishlist(rawgId: number): WishlistEntry[] {
+  const lib = loadLibrary()
+  if (lib.wishlist?.some((w) => w.id === rawgId)) {
+    lib.wishlist = lib.wishlist.filter((w) => w.id !== rawgId)
+    saveLibrary(lib)
+    broadcastChange()
+  }
+  return lib.wishlist ?? []
 }
 
 export function updateGame(id: string, patch: Partial<Game>): void {
@@ -87,7 +119,7 @@ export function addGameRecord(game: Game): Game {
 
 /** Replaces the whole library (used by profile import in "replace" mode). */
 export function saveGames(games: Game[]): void {
-  saveLibrary({ version: LIBRARY_VERSION, games })
+  saveLibrary({ version: LIBRARY_VERSION, games, wishlist: loadLibrary().wishlist })
   broadcastChange()
 }
 

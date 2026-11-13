@@ -33,6 +33,10 @@ export interface LauncherSettings {
     /** Backup destination folder, e.g. a folder inside Google Drive */
     backupPath: string
   }
+  store: {
+    /** Free RAWG API key (rawg.io/apidocs) that powers the storefront */
+    rawgApiKey: string
+  }
 }
 
 const DEFAULTS: LauncherSettings = {
@@ -50,6 +54,9 @@ const DEFAULTS: LauncherSettings = {
     enabled: false,
     ludusaviPath: '',
     backupPath: ''
+  },
+  store: {
+    rawgApiKey: ''
   }
 }
 
@@ -85,7 +92,8 @@ export function loadSettings(): LauncherSettings {
   const merged: LauncherSettings = {
     general: { ...DEFAULTS.general, ...(stored.general ?? {}) },
     achievements: { ...DEFAULTS.achievements, ...(stored.achievements ?? {}) },
-    saves: { ...DEFAULTS.saves, ...(stored.saves ?? {}) }
+    saves: { ...DEFAULTS.saves, ...(stored.saves ?? {}) },
+    store: { ...DEFAULTS.store, ...(stored.store ?? {}) }
   }
   if (!merged.saves.ludusaviPath) {
     merged.saves.ludusaviPath = guessLudusaviPath()
@@ -107,7 +115,8 @@ export function saveSettingsPatch(patch: Partial<LauncherSettings>): LauncherSet
   const next: LauncherSettings = {
     general: { ...current.general, ...(patch.general ?? {}) },
     achievements: { ...current.achievements, ...(patch.achievements ?? {}) },
-    saves: { ...current.saves, ...(patch.saves ?? {}) }
+    saves: { ...current.saves, ...(patch.saves ?? {}) },
+    store: { ...current.store, ...(patch.store ?? {}) }
   }
   saveSettings(next)
   return next
