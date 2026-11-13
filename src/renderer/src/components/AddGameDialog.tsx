@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Game } from '../../../shared/types'
+import { SteamSearchField } from './SteamSearchField'
 
 export function AddGameDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [name, setName] = useState('')
@@ -27,6 +28,9 @@ export function AddGameDialog({ onClose }: { onClose: () => void }): React.JSX.E
     const result = await window.api.addGame(game)
     if (result.duplicated) {
       alert(`«${result.game.name}» уже есть в библиотеке.`)
+    } else if (result.game.appId) {
+      // best-effort metadata pull; the library stays usable if it fails
+      void window.api.syncGameMetadata(result.game.id)
     }
     onClose()
   }
@@ -35,6 +39,13 @@ export function AddGameDialog({ onClose }: { onClose: () => void }): React.JSX.E
     <div className="overlay" onClick={onClose}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
         <h3>Добавить игру</h3>
+        <SteamSearchField
+          placeholder="Найти игру в Steam (заполнит имя и AppID)…"
+          onPick={(h) => {
+            setAppId(String(h.appId))
+            setName(h.name)
+          }}
+        />
         <button className="btn" onClick={() => void pick()}>
           {exePath ? 'Выбрать другой exe…' : 'Выбрать exe-файл…'}
         </button>
@@ -44,7 +55,7 @@ export function AddGameDialog({ onClose }: { onClose: () => void }): React.JSX.E
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название игры" />
         </label>
         <label className="field">
-          Steam AppID (необязательно, для будущих достижений)
+          Steam AppID (необязательно, для метаданных и достижений)
           <input
             value={appId}
             onChange={(e) => setAppId(e.target.value.replace(/\D/g, ''))}

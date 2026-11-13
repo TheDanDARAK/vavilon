@@ -17,6 +17,47 @@ export interface AchievementRecord {
   maxProgress?: number
 }
 
+/** One screenshot fetched from the store (URL only, never saved to disk) */
+export interface GameScreenshot {
+  url: string
+  thumbUrl?: string
+}
+
+/**
+ * Store metadata (Steam). Only text and CDN URLs are stored in library.json —
+ * images and videos are streamed from the internet on demand, so nothing
+ * but a few kilobytes of JSON ever lands on disk.
+ */
+export interface GameMetadata {
+  /** Steam AppID the metadata was fetched for */
+  appId?: number
+  /** Short description (one paragraph) */
+  shortDescription?: string
+  /** Full description (rich HTML, as delivered by the store) */
+  fullDescription?: string
+  /** Vertical cover image URL (library_600x900) */
+  coverUrl?: string
+  /** Wide banner (header) URL */
+  headerUrl?: string
+  /** Big background/hero image URL */
+  heroUrl?: string
+  /** Trailer video URL (mp4, streamed) */
+  trailerUrl?: string
+  trailerThumbUrl?: string
+  screenshots?: GameScreenshot[]
+  developer?: string[]
+  publisher?: string[]
+  genres?: string[]
+  releaseDate?: string
+  /** Positive reviews in percent (0..100) */
+  ratingPct?: number
+  /** Localized rating label, e.g. "Крайне положительные" */
+  ratingLabel?: string
+  storeUrl?: string
+  /** When the metadata was last refreshed (ms) */
+  fetchedAt?: number
+}
+
 export interface Game {
   id: string
   name: string
@@ -27,10 +68,19 @@ export interface Game {
   /** Steam AppID, used later by the achievement engine */
   appId?: number
   coverPath?: string
+  /** Internet metadata (descriptions, covers, trailer), URL-based */
+  metadata?: GameMetadata
   playtimeSeconds: number
   lastPlayedAt?: number
   addedAt: number
   achievements?: AchievementRecord[]
+}
+
+/** One suggestion from the store name search */
+export interface SteamSearchHit {
+  appId: number
+  name: string
+  iconUrl?: string
 }
 
 export interface ProfileFile {

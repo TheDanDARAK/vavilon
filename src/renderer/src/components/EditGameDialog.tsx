@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { Game } from '../../../shared/types'
+import type { Game, GameMetadata } from '../../../shared/types'
 import { mediaUrl } from '../lib/media'
+import { SteamSearchField } from './SteamSearchField'
 
 /**
  * Edit dialog for a library game: name, exe, working directory, launch
@@ -23,6 +24,8 @@ export function EditGameDialog({
   const [appId, setAppId] = useState(game.appId ? String(game.appId) : '')
   const [coverPath, setCoverPath] = useState(game.coverPath)
   const [busy, setBusy] = useState(false)
+  /** Metadata fetched through the search, applied on save */
+  const [fetchedMeta, setFetchedMeta] = useState<GameMetadata | null>(null)
 
   const pickExe = async (): Promise<void> => {
     const picked = await window.api.pickExe()
@@ -38,16 +41,58 @@ export function EditGameDialog({
     if (path) setCoverPath(path)
   }
 
+  /** A Steam search hit fills the AppID, the canonical name and pulls metadata */
+  const pickSteamHit = async (hit: { appId: number; name: string }): Promise<void> => {
+    setAppId(String(hit.appId))
+    setName(hit.name)
+    setBusy(true)
+    try {
+      const meta = await window.api.fetchMetadata(hit.appId)
+      if (meta) {
+        setFetchedMeta(meta)
+        setCoverPath(undefined) // show the internet cover instead of the old one
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Re-downloads metadata from the store for the currently entered AppID */
+  const syncMeta = async (): Promise<void> => {
+    const id = Number(appId)
+    if (!appId || !Number.isInteger(id) || id <= 0) {
+      alert('Сначала укажите корректный Steam AppID.')
+      return
+    }
+    setBusy(true)
+    try {
+      const meta = await window.api.fetchMetadata(id)
+      if (meta) {
+        setFetchedMeta(meta)
+        if (!game.coverPath) setCoverPath(undefined)
+      } else {
+        alert('Steam не вернул данные для этого AppID.')
+      }
+    } catch (e) {
+      alert(`Ошибка сети: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const save = async (): Promise<void> => {
     setBusy(true)
     const appIdNum = Number(appId)
+    const appIdFinal =
+      appId && Number.isInteger(appIdNum) && appIdNum > 0 ? appIdNum : undefined
     await window.api.updateGame(game.id, {
       name: name.trim() || game.name,
       exePath,
       // empty working dir → falls back to the exe folder everywhere in the main process
       workDir: workDir.trim() || undefined,
       args: args.trim() ? args.trim().split(/\s+/) : [],
-      appId: appId && Number.isInteger(appIdNum) && appIdNum > 0 ? appIdNum : undefined
+      appId: appIdFinal,
+      ...(fetchedMeta && fetchedMeta.appId === appIdFinal ? { metadata: fetchedMeta } : {})
     })
     onClose()
   }
@@ -56,9 +101,15 @@ export function EditGameDialog({
     <div className="overlay" onClick={onClose}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
         <h3>Изменить игру</h3>
+        <SteamSearchField
+          placeholder="Найти игру в Steam (заполнит AppID, имя и метаданные)…"
+          onPick={(h) => void pickSteamHit(h)}
+        />
         <div className="edit-cover-row">
           {coverPath ? (
             <img className="cover-preview" src={mediaUrl(coverPath)} alt="Обложка" />
+          ) : fetchedMeta?.coverUrl ? (
+            <img className="cover-preview" src={fetchedMeta.coverUrl} alt="Обложка" />
           ) : (
             <div className="cover-preview cover-preview-empty">?</div>
           )}
@@ -71,6 +122,10 @@ export function EditGameDialog({
                 Убрать
               </button>
             )}
+            <button className="btn" disabled={busy} onClick={() => void syncMeta()}>
+              ⟳ Метаданные из Steam
+            </button>
+            {fetchedMeta && <small>✓ Найдено: {fetchedMeta.shortDescription?.slice(0, 90) ?? 'метаданные загружены'}…</small>}
             <small>Обложку можно взять с Steam CDN кнопкой «⚙ Схема и обложка» в окне достижений.</small>
           </div>
         </div>

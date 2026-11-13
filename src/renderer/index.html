@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
       CSP: scripts/styles self-hosted (vite dev needs 'unsafe-inline' + ws for HMR),
-      images limited to the app itself and the media:// protocol.
+      images limited to the app itself, the media:// protocol and store CDNs
+      (metadata images/trailers are streamed by URL, never downloaded locally).
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' media: data: blob:; font-src 'self' data:; connect-src 'self' media: ws://localhost:* http://localhost:*"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' media: data: blob: https:; media-src 'self' https:; font-src 'self' data:; connect-src 'self' media: ws://localhost:* http://localhost:*"
     />
     <title>Vavilon</title>
   </head>

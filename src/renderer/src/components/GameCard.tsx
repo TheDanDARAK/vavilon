@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { Game } from '../../../shared/types'
 import { AchievementsDialog } from './AchievementsDialog'
 import { EditGameDialog } from './EditGameDialog'
+import { GameDetailsDialog } from './GameDetailsDialog'
 import { mediaUrl } from '../lib/media'
 
 function formatPlaytime(seconds: number): string {
@@ -16,7 +17,9 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
   const [running, setRunning] = useState(false)
   const [showAch, setShowAch] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(true)
+  const [coverError, setCoverError] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -42,11 +45,23 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
     .map((w: string) => w[0]?.toUpperCase() ?? '')
     .join('')
 
+  /** Local cover first (user's choice), then the internet cover, then initials */
+  const coverSrc = coverError
+    ? undefined
+    : game.coverPath
+      ? mediaUrl(game.coverPath)
+      : game.metadata?.coverUrl
+
+  // a failed load must not block a different cover after metadata refresh
+  useEffect(() => {
+    setCoverError(false)
+  }, [coverSrc])
+
   return (
     <div className={running ? 'card running' : 'card'}>
       <div className="cover" onClick={() => setShowAch(true)}>
-        {game.coverPath ? (
-          <img src={mediaUrl(game.coverPath)} alt={game.name} />
+        {coverSrc ? (
+          <img src={coverSrc} alt={game.name} onError={() => setCoverError(true)} />
         ) : (
           <div className="cover-fallback">{initials}</div>
         )}
@@ -75,6 +90,9 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
         <button className="btn btn-play" onClick={() => void window.api.launchGame(game.id)}>
           Играть
         </button>
+        <button className="icon-btn" title="Информация о игре" onClick={() => setShowDetails(true)}>
+          ⓘ
+        </button>
         <button className="icon-btn" title="Изменить игру" onClick={() => setShowEdit(true)}>
           ✎
         </button>
@@ -96,6 +114,11 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
       {showAch &&
         createPortal(
           <AchievementsDialog game={game} onClose={() => setShowAch(false)} />,
+          document.body
+        )}
+      {showDetails &&
+        createPortal(
+          <GameDetailsDialog game={game} onClose={() => setShowDetails(false)} />,
           document.body
         )}
       {showEdit &&

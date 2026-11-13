@@ -4,8 +4,10 @@ import type {
   AchievementUnlockEvent,
   AchievementSettings,
   GeneralSettings,
+  GameMetadata,
   SavesSettings,
-  SavesStatusPayload
+  SavesStatusPayload,
+  SteamSearchHit
 } from '../shared/types'
 
 const api = {
@@ -22,6 +24,15 @@ const api = {
     ipcRenderer.invoke('games:pickCover', gameId),
   removeCover: (gameId: string): Promise<boolean> =>
     ipcRenderer.invoke('games:removeCover', gameId),
+  /** Store metadata (Steam): everything goes by URL, nothing is saved to disk */
+  searchSteam: (term: string): Promise<SteamSearchHit[]> =>
+    ipcRenderer.invoke('metadata:search', term),
+  fetchMetadata: (appId: number): Promise<GameMetadata | null> =>
+    ipcRenderer.invoke('metadata:fetch', appId),
+  applyMetadata: (gameId: string, metadata: GameMetadata): Promise<boolean> =>
+    ipcRenderer.invoke('metadata:apply', gameId, metadata),
+  syncGameMetadata: (gameId: string): Promise<{ ok: boolean; message?: string }> =>
+    ipcRenderer.invoke('metadata:sync', gameId),
   /** Absolute path of a dropped file (webUtils works in the sandboxed preload). */
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   launchGame: (id: string): Promise<boolean> => ipcRenderer.invoke('games:launch', id),

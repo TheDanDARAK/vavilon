@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { cpSync } from 'fs'
 import { pathToFileURL } from 'url'
 import { registerLibraryIpc } from './library'
+import { registerMetadataIpc } from './metadata'
 import { registerRunnerIpc } from './runner'
 import { registerProfileIpc } from './profile'
 import {
@@ -123,6 +124,7 @@ if (app.requestSingleInstanceLock()) {
     setupUserData()
     registerMediaProtocol()
     registerLibraryIpc(ipcMain)
+    registerMetadataIpc(ipcMain)
     registerRunnerIpc(ipcMain, () => mainWindow)
     registerProfileIpc(ipcMain)
     registerAchievementsIpc()
