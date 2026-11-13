@@ -1,13 +1,56 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game } from '../../../shared/types'
 import { mediaUrl } from '../lib/media'
 
+/*
+ * Emulator dialog, modelled after Achievement Watcher Next:
+ *  - tracking itself is passive (reads emulator saves, never writes game files)
+ *  - "Схема и обложка" is safe: config files only, no DLL is touched
+ *  - "Установить эмулятор" is the explicit repair action (backup first) that
+ *    antivirus products may false-positive on — hence the confirmation
+ *  - a user-imported DLL ("Свой DLL…") means nothing is downloaded at all
+ */
+
+interface SchemaResult {
+  total: number
+  withIcons: number
+  localized: boolean
+  rarity: boolean
+}
+
 interface SetupReport {
   dll: string
-  schema: { total: number; withIcons: number; localized: boolean; rarity: boolean } | null
+  dllPath?: string
+  schema: SchemaResult | null
   appidWritten: boolean
   cover: boolean
+  interfaces?: { generated: boolean; source?: string }
+  warnings: string[]
+}
+
+interface SchemaReport {
+  schema: SchemaResult | null
+  cover: boolean
+  appidWritten: boolean
+}
+
+interface DiagReport {
+  gameId: string
+  appId?: number
+  dll: { path: string; isEmulator: boolean; backup: boolean } | null
+  appidTxt: boolean
+  schema: { total: number; icons: number } | null
+  interfaces: boolean
+  originalCandidates: string[]
+  runtimeSaves: number
+  cover: boolean
+  customDll: string | null
+}
+
+interface RestoreReport {
+  restored: string[]
+  removed: string[]
   warnings: string[]
 }
 
@@ -24,34 +67,150 @@ export function AchievementsDialog({
 }): React.JSX.Element {
   const [setupBusy, setSetupBusy] = useState(false)
   const [setupError, setSetupError] = useState('')
+  const [diag, setDiag] = useState<DiagReport | null>(null)
   const achievements = game.achievements ?? []
   const unlocked = achievements.filter((a) => a.unlockedAt).length
 
-  const runSetup = async (): Promise<void> => {
+  const refreshDiag = (): void => {
+    void window.api
+      .diagnoseEmu(game.id)
+      .then((r) => setDiag(r as DiagReport))
+      .catch(() => setDiag(null))
+  }
+
+  useEffect(() => {
+    refreshDiag()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.id])
+
+  const finishWith = async (
+    promise: Promise<unknown>,
+    describe: (report: unknown) => string
+  ): Promise<void> => {
     setSetupBusy(true)
     setSetupError('')
     try {
-      const report = (await window.api.setupAchievements(game.id)) as SetupReport
-      const schema = report.schema
-      alert(
-        `Готово!\n\n` +
-          `DLL: ${report.dll}\n` +
-          (schema
-            ? `схема: ${schema.total} достижений, иконок ${schema.withIcons}` +
-              `${schema.localized ? ', русские названия' : ''}` +
-              `${schema.rarity ? ', редкость' : ''}\n`
-            : '') +
-          `${report.cover ? 'Обложка загружена с Steam CDN\n' : ''}` +
-          (report.warnings.length ? `\n${report.warnings.join('\n')}\n` : '') +
-          `\nЗапусти игру и разблокируй достижение — оно появится здесь.`
-      )
+      alert(await describe(await promise))
+      refreshDiag()
       onClose()
     } catch (e) {
-      setSetupError(`Ошибка настройки: ${String(e).replace('Error: ', '')}`)
+      setSetupError(`Ошибка: ${String(e).replace('Error: ', '')}`)
     } finally {
       setSetupBusy(false)
     }
   }
+
+  /** Safe: schema + cover, config files only. */
+  const runSchema = (): Promise<void> =>
+    finishWith(window.api.setupSchema(game.id), (raw) => {
+      const r = raw as SchemaReport
+      const schema = r.schema
+      return (
+        `Готово!\n\n` +
+        (schema
+          ? `схема: ${schema.total} достижений, иконок ${schema.withIcons}` +
+            `${schema.localized ? ', русские названия' : ''}` +
+            `${schema.rarity ? ', редкость' : ''}\n`
+          : '') +
+        `${r.cover ? 'Обложка загружена с Steam CDN\n' : ''}` +
+        `\nФайлы игры (DLL) не изменялись.`
+      )
+    })
+
+  /** Repair: DLL replacement + schema. Explicitly confirmed. */
+  const runInstall = (): Promise<void> => {
+    const ok = confirm(
+      'Установить Steam-эмулятор (GBE) в папку игры?\n\n' +
+        '— оригинальная steam_api.dll будет сохранена как .valve.bak\n' +
+        '— схема достижений и steam_appid.txt будут записаны\n\n' +
+        'Антивирус может отреагировать на эмуляторную DLL — это ложное срабатывание. ' +
+        'Вместо скачивания можно использовать свой DLL (кнопка «📁 Свой DLL…»).'
+    )
+    if (!ok) return Promise.resolve()
+    return finishWith(window.api.installEmu(game.id), (raw) => {
+      const report = raw as SetupReport
+      const schema = report.schema
+      return (
+        `Готово!\n\n` +
+        `DLL: ${report.dll}\n` +
+        (schema
+          ? `схема: ${schema.total} достижений, иконок ${schema.withIcons}` +
+            `${schema.localized ? ', русские названия' : ''}` +
+            `${schema.rarity ? ', редкость' : ''}\n`
+          : '') +
+        (report.interfaces?.generated
+          ? `interfaces: сгенерирован из ${report.interfaces.source?.split('\\').pop()}\n`
+          : '') +
+        `${report.cover ? 'Обложка загружена с Steam CDN\n' : ''}` +
+        (report.warnings.length ? `\n${report.warnings.join('\n')}\n` : '') +
+        `\nЗапусти игру и разблокируй достижение — оно появится здесь.`
+      )
+    })
+  }
+
+  /** Import a user-provided emulator DLL instead of the downloaded build. */
+  const runCustomDll = async (): Promise<void> => {
+    setSetupError('')
+    try {
+      const r = await window.api.pickCustomDll()
+      if (!r) return
+      alert(
+        `DLL импортирован: ${r.name} (${r.arch === 64 ? 'x64' : 'x86'}).\n\n` +
+          `Теперь нажмите «🛠 Установить эмулятор» — будет использован ваш файл вместо скачиваемого.`
+      )
+      refreshDiag()
+    } catch (e) {
+      setSetupError(`Ошибка: ${String(e).replace('Error: ', '')}`)
+    }
+  }
+
+  const runRestore = async (): Promise<void> => {
+    const ok = confirm(
+      'Откатить Steam-эмуляцию для этой игры?\n\n' +
+        '— оригинальная steam_api.dll будет восстановлена из .valve.bak (или удалён установленный эмулятор)\n' +
+        '— схема достижений и steam_appid.txt будут удалены\n\n' +
+        'История достижений в библиотеке сохранится.'
+    )
+    if (!ok) return
+    setSetupBusy(true)
+    setSetupError('')
+    try {
+      const report = (await window.api.restoreEmu(game.id)) as RestoreReport
+      const lines: string[] = []
+      if (report.restored.length) lines.push(`Восстановлено:\n${report.restored.join('\n')}`)
+      if (report.removed.length) lines.push(`Удалено:\n${report.removed.join('\n')}`)
+      if (report.warnings.length) lines.push(report.warnings.join('\n'))
+      if (lines.length === 0) lines.push('Файлы эмуляции не найдены — откатывать нечего.')
+      alert(`Откат выполнен.\n\n${lines.join('\n\n')}`)
+      refreshDiag()
+    } catch (e) {
+      setSetupError(`Ошибка отката: ${String(e).replace('Error: ', '')}`)
+    } finally {
+      setSetupBusy(false)
+    }
+  }
+
+  const diagText = diag
+    ? [
+        diag.customDll
+          ? 'свой DLL'
+          : diag.dll
+            ? diag.dll.isEmulator
+              ? 'эмулятор установлен'
+              : 'оригинальная Steam DLL'
+            : 'эмулятора нет',
+        diag.dll?.backup ? 'бэкап: есть' : null,
+        diag.schema ? `схема: ${diag.schema.total} ачивок` : 'схемы нет',
+        diag.appidTxt ? 'appid: ок' : 'appid: нет',
+        diag.interfaces ? 'interfaces: ок' : 'interfaces: нет',
+        `runtime-файлы: ${diag.runtimeSaves > 0 ? 'есть' : 'нет'}`,
+        diag.originalCandidates.length && !diag.dll?.isEmulator
+          ? `оригинал: ${diag.originalCandidates.join(', ')}`
+          : null
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : ''
 
   return createPortal(
     <div className="overlay" onClick={onClose}>
@@ -63,19 +222,37 @@ export function AchievementsDialog({
           </span>
         </div>
 
+        {diagText && <div className="emu-diag">{diagText}</div>}
+
         {achievements.length === 0 ? (
           <div className="ach-empty">
             Достижения ещё не найдены.
             <small>
-              Нужен Steam-эмулятор (GBE/Goldberg) и схема достижений. Кнопка ниже скачает схему
-              (названия, иконки, редкость) и при необходимости сам эмулятор.
+              Для трекинга нужен Steam-эмулятор (GBE/Goldberg) в игре и схема достижений. «Схема и
+              обложка» безопасна — она не меняет файлы игры. Установку эмулятора подтверждаете вы.
             </small>
             <button
               className="btn btn-primary setup-btn"
               disabled={setupBusy}
-              onClick={() => void runSetup()}
+              onClick={() => void runInstall()}
             >
-              {setupBusy ? 'Настраиваю… (скачивание схемы и иконок)' : '⚙ Настроить Steam-эмуляцию (GBE)'}
+              {setupBusy ? 'Настраиваю…' : '🛠 Установить эмулятор (GBE)'}
+            </button>
+            <button
+              className="btn setup-btn"
+              disabled={setupBusy}
+              onClick={() => void runSchema()}
+              title="Названия, иконки, редкость и обложка с Steam CDN — без изменения DLL"
+            >
+              ⬇ Схема и обложка (без DLL)
+            </button>
+            <button
+              className="btn setup-btn"
+              disabled={setupBusy}
+              onClick={() => void runCustomDll()}
+              title="Использовать свой steam_api(64).dll вместо скачиваемого — тогда лаунчер ничего не скачивает"
+            >
+              📁 Свой DLL…
             </button>
             {setupError && <div className="setup-error">{setupError}</div>}
           </div>
@@ -96,6 +273,24 @@ export function AchievementsDialog({
                 <div className="ach-text">
                   <div className="ach-name">{a.displayName || a.api}</div>
                   {a.description && <div className="ach-desc">{a.description}</div>}
+                  {typeof a.progress === 'number' &&
+                    typeof a.maxProgress === 'number' &&
+                    a.maxProgress > 0 &&
+                    !a.unlockedAt && (
+                      <div className="ach-progress-line">
+                        <div className="ach-bar mini">
+                          <div
+                            className="ach-bar-fill"
+                            style={{
+                              width: `${Math.min(100, (a.progress / a.maxProgress) * 100)}%`
+                            }}
+                          />
+                        </div>
+                        <span className="ach-progress-text">
+                          {a.progress}/{a.maxProgress}
+                        </span>
+                      </div>
+                    )}
                 </div>
                 <div className="ach-side">
                   {a.rarity !== undefined && (
@@ -125,7 +320,11 @@ export function AchievementsDialog({
             onClick={() => {
               void window.api
                 .exportUnlocks(game.id)
-                .then((r) => alert(`Прогресс загружен в эмулятор: ${r.exported} достижение(й).\n\n${r.file}`))
+                .then((r) =>
+                  alert(
+                    `Прогресс загружен в эмулятор: ${r.exported} достижение(й).\n\n${r.files.join('\n')}`
+                  )
+                )
                 .catch((e) => alert(`Ошибка: ${String(e).replace('Error: ', '')}`))
             }}
           >
@@ -133,11 +332,62 @@ export function AchievementsDialog({
           </button>
           <button
             className="btn"
+            title="Сбросить счётчик: убрать разблокировки из библиотеки и удалить runtime-файлы эмулятора (аналог Reset в AW Next)"
+            onClick={() => {
+              const ok = confirm(
+                'Сбросить историю достижений для этой игры?\n\n' +
+                  '— счётчик станет 0/' +
+                  achievements.length +
+                  '\n' +
+                  '— runtime-файлы эмулятора (GSE Saves / Goldberg) будут удалены\n' +
+                  '— игра начнёт считать достижения заново\n\n' +
+                  'Отменить это нельзя.'
+              )
+              if (!ok) return
+              void window.api
+                .resetAchievements(game.id)
+                .then((r) => {
+                  alert(
+                    `Сброшено: ${r.cleared} разблокировок.\n${r.files.length ? '\nУдалены файлы:\n' + r.files.join('\n') : ''}`
+                  )
+                  onClose()
+                })
+                .catch((e) => alert(`Ошибка: ${String(e).replace('Error: ', '')}`))
+            }}
+          >
+            🧹 Сбросить достижения
+          </button>
+          <button
+            className="btn"
             disabled={setupBusy}
-            onClick={() => void runSetup()}
-            title="Схема достижений, иконки, редкость и обложка с Steam CDN"
+            title="Установить Steam-эмулятор (GBE): замена DLL с бэкапом + схема. Антивирус может отреагировать — это ложное срабатывание"
+            onClick={() => void runInstall()}
+          >
+            {setupBusy ? '…' : '🛠 Установить эмулятор'}
+          </button>
+          <button
+            className="btn"
+            disabled={setupBusy}
+            onClick={() => void runCustomDll()}
+            title="Использовать свой steam_api(64).dll вместо скачиваемого — тогда лаунчер ничего не скачивает"
+          >
+            📁 Свой DLL…
+          </button>
+          <button
+            className="btn"
+            disabled={setupBusy}
+            onClick={() => void runSchema()}
+            title="Схема, иконки, редкость и обложка с Steam CDN — файлы игры не меняются"
           >
             {setupBusy ? '…' : '⚙ Схема и обложка'}
+          </button>
+          <button
+            className="btn"
+            disabled={setupBusy}
+            title="Восстановить оригинальную steam_api.dll и удалить файлы эмулятора"
+            onClick={() => void runRestore()}
+          >
+            ↩ Откатить эмуляцию
           </button>
           <button className="btn btn-primary" onClick={onClose}>
             Закрыть

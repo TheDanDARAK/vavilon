@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { cpSync, existsSync } from 'fs'
+import { join } from 'path'
 import { getGames } from '../library'
 import { loadSettings } from './saveSettings'
 
@@ -59,9 +60,17 @@ function runCli(
 
 function configDir(): string {
   // isolated config so the launcher never touches a shared ludusavi install
-  return process.env.APPDATA
-    ? `${process.env.APPDATA}\\my-launcher\\ludusavi-config`
-    : 'ludusavi-config'
+  const appData = process.env.APPDATA
+  if (!appData) return 'ludusavi-config'
+  const dir = join(appData, 'vavilon', 'ludusavi-config')
+  // one-time migration from the old dev-era folder name
+  const old = join(appData, 'my-launcher', 'ludusavi-config')
+  try {
+    if (!existsSync(dir) && existsSync(old)) cpSync(old, dir, { recursive: true })
+  } catch {
+    // fall through with the fresh config dir
+  }
+  return dir
 }
 
 /** Resolves the canonical ludusavi game name by Steam AppID (cached). */

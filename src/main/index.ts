@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, net, protocol, shell } from 'electron'
-import { join } from 'path'
+import { join, extname, isAbsolute } from 'path'
 import { existsSync } from 'fs'
 import { cpSync } from 'fs'
 import { pathToFileURL } from 'url'
@@ -47,9 +47,18 @@ function registerMediaProtocol(): void {
     const url = new URL(request.url)
     // media://local/<encodeURIComponent(absolute path)>
     const filePath = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
+    // Hardening: only image files may cross this bridge (covers live in userData,
+    // achievement icons inside game folders — so a location whitelist would
+    // break imported profiles; an extension whitelist blocks reading
+    // documents, archives and executables even if the renderer is compromised).
+    if (!isAbsolute(filePath) || !MEDIA_IMAGE_EXTENSIONS.has(extname(filePath).toLowerCase())) {
+      return new Response('Forbidden', { status: 403 })
+    }
     return net.fetch(pathToFileURL(filePath).toString())
   })
 }
+
+const MEDIA_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.bmp'])
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -64,7 +73,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      // the preload only uses ipcRenderer + contextBridge, so the sandbox
+      // costs nothing and keeps the renderer out of Node
+      sandbox: true
     }
   })
 
@@ -93,26 +104,44 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  setupUserData()
-  registerMediaProtocol()
-  registerLibraryIpc(ipcMain)
-  registerRunnerIpc(ipcMain, () => mainWindow)
-  registerProfileIpc(ipcMain)
-  registerAchievementsIpc()
-  registerGbeSetupIpc()
-  registerSavesIpc(() => mainWindow)
-  registerGeneralIpc()
-
-  createWindow()
-  createTray()
-  applyAutostart()
-  startAchievementWatcher()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+// Single instance: a second copy would race the first on the same library.json
+// (the achievement watcher rewrites it every few seconds).
+if (app.requestSingleInstanceLock()) {
+  // A second launch was attempted — bring the existing window up instead.
+  app.on('second-instance', () => {
+    const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    } else {
+      createWindow()
+    }
   })
-})
+
+  app.whenReady().then(() => {
+    setupUserData()
+    registerMediaProtocol()
+    registerLibraryIpc(ipcMain)
+    registerRunnerIpc(ipcMain, () => mainWindow)
+    registerProfileIpc(ipcMain)
+    registerAchievementsIpc()
+    registerGbeSetupIpc()
+    registerSavesIpc(() => mainWindow)
+    registerGeneralIpc()
+
+    createWindow()
+    createTray()
+    applyAutostart()
+    startAchievementWatcher()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+} else {
+  app.quit()
+}
 
 app.on('before-quit', () => {
   markQuitting()

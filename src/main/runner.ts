@@ -75,6 +75,20 @@ async function launchGame(id: string, getWindow: () => BrowserWindow | null): Pr
     }
     win?.webContents.send('games:changed')
   })
+
+  child.on('error', (err) => {
+    // spawn itself failed (missing exe, access denied) — the process never ran,
+    // so drop the tracking entry or the game would look "running" forever
+    const entry = running.get(id)
+    if (!entry || entry.child !== child) return
+    running.delete(id)
+    getWindow()?.webContents.send('saves:status', {
+      stage: 'launch',
+      gameName: game.name,
+      ok: false,
+      message: `не удалось запустить игру: ${err.message}`
+    })
+  })
 }
 
 export function registerRunnerIpc(ipc: typeof ipcMain, getWindow: () => BrowserWindow | null): void {

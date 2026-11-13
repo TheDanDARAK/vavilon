@@ -8,10 +8,19 @@ import { GeneralSettingsSection } from './components/GeneralSettingsSection'
 
 type SortKey = 'name' | 'lastPlayed' | 'playtime'
 
+const SORT_KEYS: SortKey[] = ['lastPlayed', 'name', 'playtime']
+
+function loadSortKey(): SortKey {
+  const saved = localStorage.getItem('vavilon.sort')
+  return SORT_KEYS.includes(saved as SortKey) ? (saved as SortKey) : 'lastPlayed'
+}
+
 export default function App(): React.JSX.Element {
   const [games, setGames] = useState<Game[]>([])
   const [showAdd, setShowAdd] = useState(false)
-  const [sortKey, setSortKey] = useState<SortKey>('lastPlayed')
+  const [sortKey, setSortKey] = useState<SortKey>(loadSortKey)
+  const [query, setQuery] = useState('')
+  const [dragOver, setDragOver] = useState(false)
   const [unlockToast, setUnlockToast] = useState<AchievementUnlockEvent | null>(null)
 
   const refresh = useCallback(async () => {
@@ -39,6 +48,28 @@ export default function App(): React.JSX.Element {
     }
   })
 
+  const changeSort = (key: SortKey): void => {
+    setSortKey(key)
+    localStorage.setItem('vavilon.sort', key)
+  }
+
+  /** Adds every dropped exe to the library (duplicates are reported, not re-added). */
+  const handleDrop = async (event: React.DragEvent): Promise<void> => {
+    event.preventDefault()
+    setDragOver(false)
+    for (const file of Array.from(event.dataTransfer.files)) {
+      const path = window.api.pathForFile(file)
+      if (!path || !path.toLowerCase().endsWith('.exe')) continue
+      const result = await window.api.addGame({ exePath: path })
+      if (result.duplicated) alert(`«${result.game.name}» уже есть в библиотеке.`)
+    }
+  }
+
+  const visible =
+    query.trim() === ''
+      ? sorted
+      : sorted.filter((g) => g.name.toLowerCase().includes(query.trim().toLowerCase()))
+
   return (
     <div className="app">
       <header className="sidebar">
@@ -50,22 +81,31 @@ export default function App(): React.JSX.Element {
           + Добавить игру
         </button>
         <div className="section">
+          <div className="section-title">Поиск</div>
+          <input
+            className="search-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Название игры…"
+          />
+        </div>
+        <div className="section">
           <div className="section-title">Сортировка</div>
           <button
             className={sortKey === 'lastPlayed' ? 'chip active' : 'chip'}
-            onClick={() => setSortKey('lastPlayed')}
+            onClick={() => changeSort('lastPlayed')}
           >
             Недавние
           </button>
           <button
             className={sortKey === 'name' ? 'chip active' : 'chip'}
-            onClick={() => setSortKey('name')}
+            onClick={() => changeSort('name')}
           >
             По имени
           </button>
           <button
             className={sortKey === 'playtime' ? 'chip active' : 'chip'}
-            onClick={() => setSortKey('playtime')}
+            onClick={() => changeSort('playtime')}
           >
             По времени
           </button>
@@ -108,19 +148,35 @@ export default function App(): React.JSX.Element {
         </div>
       </header>
 
-      <main className="content">
+      <main
+        className="content"
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false)
+        }}
+        onDrop={(e) => void handleDrop(e)}
+      >
         {sorted.length === 0 ? (
           <div className="empty">
             <h2>Библиотека пуста</h2>
-            <p>Нажмите «Добавить игру» и выберите exe-файл.</p>
+            <p>Нажмите «Добавить игру» или перетащите exe-файл прямо сюда.</p>
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="empty">
+            <h2>Ничего не найдено</h2>
+            <p>По запросу «{query.trim()}» нет ни одной игры.</p>
           </div>
         ) : (
           <div className="grid">
-            {sorted.map((game) => (
+            {visible.map((game) => (
               <GameCard key={game.id} game={game} />
             ))}
           </div>
         )}
+        {dragOver && <div className="drop-overlay">Отпустите, чтобы добавить игру</div>}
       </main>
 
       {showAdd && <AddGameDialog onClose={() => setShowAdd(false)} />}

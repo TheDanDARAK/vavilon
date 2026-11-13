@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, renameSync, existsSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 
@@ -62,8 +62,10 @@ function settingsPath(): string {
 function guessLudusaviPath(): string {
   // development: portable copy in the tools folder; packaged: resources/binaries
   const candidates = [
-    'C:\\Users\\user\\tools\\ludusavi\\ludusavi.exe',
+    // packaged: bundled next to the app in resources
     join(process.resourcesPath ?? '', 'binaries', 'ludusavi.exe'),
+    // development: the repo copy
+    join(app.getAppPath(), 'resources', 'binaries', 'ludusavi.exe'),
     join(app.getAppPath(), 'binaries', 'ludusavi.exe')
   ]
   for (const candidate of candidates) {
@@ -94,7 +96,10 @@ export function loadSettings(): LauncherSettings {
 
 export function saveSettings(settings: LauncherSettings): void {
   cache = settings
-  writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
+  // crash-safe write: temp file first, then rename over the real one
+  const tmp = `${settingsPath()}.tmp`
+  writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf-8')
+  renameSync(tmp, settingsPath())
 }
 
 export function saveSettingsPatch(patch: Partial<LauncherSettings>): LauncherSettings {

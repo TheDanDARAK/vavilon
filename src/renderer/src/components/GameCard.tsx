@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game } from '../../../shared/types'
 import { AchievementsDialog } from './AchievementsDialog'
+import { EditGameDialog } from './EditGameDialog'
 import { mediaUrl } from '../lib/media'
 
 function formatPlaytime(seconds: number): string {
@@ -14,6 +15,7 @@ function formatPlaytime(seconds: number): string {
 export function GameCard({ game }: { game: Game }): React.JSX.Element {
   const [running, setRunning] = useState(false)
   const [showAch, setShowAch] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(true)
 
   useEffect(() => {
@@ -73,6 +75,9 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
         <button className="btn btn-play" onClick={() => void window.api.launchGame(game.id)}>
           Играть
         </button>
+        <button className="icon-btn" title="Изменить игру" onClick={() => setShowEdit(true)}>
+          ✎
+        </button>
         <button
           className="icon-btn"
           title="Удалить из библиотеки"
@@ -91,6 +96,11 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
       {showAch &&
         createPortal(
           <AchievementsDialog game={game} onClose={() => setShowAch(false)} />,
+          document.body
+        )}
+      {showEdit &&
+        createPortal(
+          <EditGameDialog game={game} onClose={() => setShowEdit(false)} />,
           document.body
         )}
     </div>

@@ -1,6 +1,6 @@
 {
   "name": "vavilon",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Vavilon — игровой комбайн: библиотека игр, достижения через Steam-эмуляцию, облачные сохранения",
   "main": "out/main/index.js",
   "author": "TheDanDARAK",
@@ -23,6 +23,7 @@
     "vite": "^5.4.11"
   },
   "dependencies": {
+    "7z-wasm": "^1.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   }

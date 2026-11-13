@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { basename, dirname } from 'path'
-import { getGames, Game, updateGame, addGameRecord, saveGames } from './library'
+import { getGames, Game, updateGame, addGameRecord, saveGames, backupLibrary } from './library'
 
 interface ProfileFile {
   app: 'my-launcher' | 'vavilon'
@@ -121,7 +121,9 @@ export function registerProfileIpc(ipc: typeof ipcMain): void {
     }
 
     if (mode === 'replace') {
-      // wipe the library first, then import everything from the profile
+      // keep a backup first, so an accidental replace is recoverable
+      backupLibrary()
+      // wipe the library, then import everything from the profile
       saveGames([])
       return mergeProfile(profile.games)
     }

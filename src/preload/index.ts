@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   Game,
   AchievementUnlockEvent,
@@ -16,8 +16,14 @@ const api = {
   updateGame: (id: string, patch: Partial<Game>): Promise<boolean> =>
     ipcRenderer.invoke('games:update', id, patch),
   removeGame: (id: string): Promise<boolean> => ipcRenderer.invoke('games:remove', id),
-  pickExe: (): Promise<{ exePath: string; suggestedName: string } | null> =>
+  pickExe: (): Promise<{ exePath: string; suggestedName: string; suggestedWorkDir: string } | null> =>
     ipcRenderer.invoke('games:pickExe'),
+  pickCover: (gameId: string): Promise<string | null> =>
+    ipcRenderer.invoke('games:pickCover', gameId),
+  removeCover: (gameId: string): Promise<boolean> =>
+    ipcRenderer.invoke('games:removeCover', gameId),
+  /** Absolute path of a dropped file (webUtils works in the sandboxed preload). */
+  pathForFile: (file: File): string => webUtils.getPathForFile(file),
   launchGame: (id: string): Promise<boolean> => ipcRenderer.invoke('games:launch', id),
   isRunning: (id: string): Promise<boolean> => ipcRenderer.invoke('games:isRunning', id),
   stopGame: (id: string): Promise<boolean> => ipcRenderer.invoke('games:stop', id),
@@ -25,8 +31,12 @@ const api = {
   importProfile: (mode: 'merge' | 'replace'): Promise<unknown> =>
     ipcRenderer.invoke('profile:import', mode),
   syncAchievements: (): Promise<boolean> => ipcRenderer.invoke('achievements:sync'),
-  setupAchievements: (gameId: string): Promise<unknown> =>
-    ipcRenderer.invoke('gbe:setup', gameId),
+  diagnoseEmu: (gameId: string): Promise<unknown> => ipcRenderer.invoke('gbe:diagnose', gameId),
+  setupSchema: (gameId: string): Promise<unknown> => ipcRenderer.invoke('gbe:schema', gameId),
+  installEmu: (gameId: string): Promise<unknown> => ipcRenderer.invoke('gbe:install', gameId),
+  pickCustomDll: (): Promise<{ name: string; arch: 32 | 64 } | null> =>
+    ipcRenderer.invoke('gbe:pickCustomDll'),
+  clearCustomDll: (): Promise<boolean> => ipcRenderer.invoke('gbe:clearCustomDll'),
   getSavesSettings: (): Promise<SavesSettings> => ipcRenderer.invoke('saves:get'),
   setSavesSettings: (patch: Partial<SavesSettings>): Promise<SavesSettings> =>
     ipcRenderer.invoke('saves:set', patch),
@@ -41,8 +51,14 @@ const api = {
   getAchSettings: (): Promise<AchievementSettings> => ipcRenderer.invoke('ach:get'),
   setAchSettings: (patch: Partial<AchievementSettings>): Promise<AchievementSettings> =>
     ipcRenderer.invoke('ach:set', patch),
-  exportUnlocks: (gameId: string): Promise<{ exported: number; file: string }> =>
+  exportUnlocks: (gameId: string): Promise<{ exported: number; file: string; files: string[] }> =>
     ipcRenderer.invoke('gbe:exportUnlocks', gameId),
+  restoreEmu: (
+    gameId: string
+  ): Promise<{ restored: string[]; removed: string[]; warnings: string[] }> =>
+    ipcRenderer.invoke('gbe:restore', gameId),
+  resetAchievements: (gameId: string): Promise<{ cleared: number; files: string[] }> =>
+    ipcRenderer.invoke('gbe:resetAch', gameId),
   onSaveStatus: (callback: (payload: SavesStatusPayload) => void): (() => void) => {
     const listener = (_e: unknown, payload: SavesStatusPayload): void => callback(payload)
     ipcRenderer.on('saves:status', listener)

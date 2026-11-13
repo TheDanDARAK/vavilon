@@ -12,6 +12,9 @@ export interface AchievementRecord {
   unlockedAt?: number
   /** Rarity in percent (0..100), if known */
   rarity?: number
+  /** Stat-based achievement progress, when the emulator reports it */
+  progress?: number
+  maxProgress?: number
 }
 
 export interface Game {

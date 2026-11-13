@@ -86,7 +86,9 @@ function upsertRecord(
     description: existing?.description ?? schemaAch?.description,
     icon: existing?.icon ?? schemaAch?.iconPath,
     rarity: existing?.rarity ?? schemaAch?.rarity,
-    unlockedAt: bestUnlockedAt
+    unlockedAt: bestUnlockedAt,
+    progress: entry.progress ?? existing?.progress,
+    maxProgress: entry.maxProgress ?? existing?.maxProgress
   }
 }
 
@@ -114,20 +116,30 @@ function poll(): boolean {
       const prev = stored.get(key)
       const prevUnlockedAt = prev?.unlockedAt ?? 0
       const entryUnlockedAt = entry.earned && entry.earnedTime > 0 ? entry.earnedTime * 1000 : 0
+      const progressChanged =
+        (entry.progress !== undefined || entry.maxProgress !== undefined) &&
+        (prev?.progress !== entry.progress || prev?.maxProgress !== entry.maxProgress)
 
-      if (entryUnlockedAt > prevUnlockedAt) {
+      if (entryUnlockedAt > prevUnlockedAt || progressChanged) {
         const record = upsertRecord(key, prev, schemaByName.get(key), entry)
         stored.set(key, record)
         updated = true
-        if (initialSync) continue
-        // only a fresh unlock (by emulator timestamp, not an import)
-        if (Date.now() - entryUnlockedAt < pollInterval() * 4) {
-          newUnlocks.push(record)
+        // only a fresh unlock (by emulator timestamp) shows a toast —
+        // progress-only changes and the startup import stay silent
+        const isFreshUnlock =
+          entryUnlockedAt > prevUnlockedAt &&
+          !initialSync &&
+          Date.now() - entryUnlockedAt < pollInterval() * 4
+        if (isFreshUnlock) newUnlocks.push(record)
+      } else if (schemaByName.has(key)) {
+        // enrich records the schema can complete: achievements imported before
+        // the schema existed (or records still missing a name) get their
+        // display name, icon, description and rarity filled in here
+        const sch = schemaByName.get(key)
+        if (!prev || !prev.displayName) {
+          stored.set(key, upsertRecord(key, prev, sch, entry))
+          updated = true
         }
-      } else if (!prev && schemaByName.has(key)) {
-        // enrich locked achievements from the schema so the list is complete
-        stored.set(key, upsertRecord(key, undefined, schemaByName.get(key), entry))
-        updated = true
       }
     }
 
