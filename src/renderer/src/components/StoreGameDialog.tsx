@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { StoreGame, StoreGameDetails } from '../../../shared/types'
+import { TorrentSearchDialog } from './TorrentSearchDialog'
 
 /**
  * Storefront game details: hero, description, screenshots, wishlist toggle
@@ -23,6 +24,7 @@ export function StoreGameDialog({
   const [error, setError] = useState<string | null>(null)
   const [showFull, setShowFull] = useState(false)
   const [bigShot, setBigShot] = useState<string | null>(null)
+  const [torrentOpen, setTorrentOpen] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -109,6 +111,9 @@ export function StoreGameDialog({
                     >
                       {inWishlist ? '★ В желаемом' : '☆ В желаемое'}
                     </button>
+                    <button className="btn" onClick={() => setTorrentOpen(true)}>
+                      ⬇ Найти раздачу
+                    </button>
                     {details.website && (
                       <button className="btn" onClick={() => openUrl(details.website as string)}>
                         Официальный сайт ↗
@@ -157,6 +162,13 @@ export function StoreGameDialog({
               <div className="shot-viewer" onClick={() => setBigShot(null)}>
                 <img src={bigShot} alt="Скриншот" />
               </div>
+            )}
+
+            {torrentOpen && (
+              <TorrentSearchDialog
+                initialQuery={details.name}
+                onClose={() => setTorrentOpen(false)}
+              />
             )}
           </>
         ) : (

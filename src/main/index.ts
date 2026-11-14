@@ -15,6 +15,7 @@ import {
 import { registerGbeSetupIpc } from './achievements/gbeSetup'
 import { registerSavesIpc, registerGeneralIpc } from './saves/saveIpc'
 import { registerStoreIpc } from './store'
+import { registerTorrentsIpc } from './torrents'
 import { applyAutostart } from './saves/saveSettings'
 import { createTray, shouldHideToTray, markQuitting } from './tray'
 
@@ -133,6 +134,7 @@ if (app.requestSingleInstanceLock()) {
     registerSavesIpc(() => mainWindow)
     registerGeneralIpc()
     registerStoreIpc(ipcMain)
+    registerTorrentsIpc(ipcMain)
 
     createWindow()
     createTray()

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game } from '../../../shared/types'
 import { mediaUrl } from '../lib/media'
+import { TorrentSearchDialog } from './TorrentSearchDialog'
 
 /**
  * Full-page game details: hero image, description, screenshots and trailer —
@@ -19,6 +20,7 @@ export function GameDetailsDialog({
   const [showFull, setShowFull] = useState(false)
   const [showTrailer, setShowTrailer] = useState(false)
   const [bigShot, setBigShot] = useState<string | null>(null)
+  const [torrentOpen, setTorrentOpen] = useState(false)
 
   const refresh = async (): Promise<void> => {
     setBusy(true)
@@ -96,6 +98,9 @@ export function GameDetailsDialog({
                 <button className="btn" disabled={busy} onClick={() => void refresh()}>
                   {busy ? 'Загрузка…' : '⟳ Обновить метаданные'}
                 </button>
+                <button className="btn" onClick={() => setTorrentOpen(true)}>
+                  ⬇ Найти раздачу
+                </button>
                 {meta?.storeUrl && (
                   <a className="btn" href={meta.storeUrl} target="_blank" rel="noreferrer">
                     Страница в Steam ↗
@@ -167,6 +172,10 @@ export function GameDetailsDialog({
           <div className="shot-viewer" onClick={() => setBigShot(null)}>
             <img src={bigShot} alt="Скриншот" />
           </div>
+        )}
+
+        {torrentOpen && (
+          <TorrentSearchDialog initialQuery={game.name} onClose={() => setTorrentOpen(false)} />
         )}
       </div>
     </div>,

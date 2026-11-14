@@ -168,6 +168,43 @@ export const STORE_GENRES: StoreGenre[] = [
   { slug: 'massively-multiplayer', label: 'MMO' }
 ]
 
+/* ============================================================
+   Torrent search (search.exfreedomist.com): types shared across the bridge
+   ============================================================ */
+
+/** One torrent release returned by the aggregator */
+export interface TorrentResult {
+  /** Stable key: the one-time /magnet path from the search page */
+  key: string
+  /** Display title of the release */
+  title: string
+  /** Tracker name, e.g. "rutracker" */
+  tracker?: string
+  /** Tracker category, e.g. "RPG" */
+  category?: string
+  /** Human-readable size, e.g. "148.88 GB" */
+  size?: string
+  /** Release/publish date as "YYYY-MM-DD" */
+  date?: string
+  seeds?: number
+  leechers?: number
+  /** Whether the aggregator marked the release as verified */
+  verified?: boolean
+}
+
+/** Parsed aggregator search page */
+export interface TorrentSearchPage {
+  total: number
+  results: TorrentResult[]
+}
+
+/** Generic torrent request result (main never throws to the renderer) */
+export interface TorrentResultEnvelope<T> {
+  ok: boolean
+  data?: T
+  error?: string
+}
+
 /** General behaviour of the launcher (tray, autostart) */
 export interface GeneralSettings {
   /** Start the launcher when Windows starts */

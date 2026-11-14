@@ -12,6 +12,8 @@ import type {
   StoreGameDetails,
   StoreRecommendation,
   StoreResult,
+  TorrentResultEnvelope,
+  TorrentSearchPage,
   WishlistEntry
 } from '../shared/types'
 
@@ -62,6 +64,16 @@ const api = {
     ipcRenderer.invoke('store:wishlist:add', entry),
   storeWishlistRemove: (id: number): Promise<WishlistEntry[]> =>
     ipcRenderer.invoke('store:wishlist:remove', id),
+  /** Torrent search through search.exfreedomist.com */
+  torrentsSearch: (
+    query: string,
+    options?: { orderBy?: string; offset?: number }
+  ): Promise<TorrentResultEnvelope<TorrentSearchPage>> =>
+    ipcRenderer.invoke('torrents:search', query, options),
+  torrentsMagnet: (key: string): Promise<TorrentResultEnvelope<string>> =>
+    ipcRenderer.invoke('torrents:magnet', key),
+  torrentsCopy: (text: string): Promise<boolean> => ipcRenderer.invoke('torrents:copy', text),
+  torrentsOpen: (uri: string): Promise<boolean> => ipcRenderer.invoke('torrents:open', uri),
   /** Absolute path of a dropped file (webUtils works in the sandboxed preload). */
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   launchGame: (id: string): Promise<boolean> => ipcRenderer.invoke('games:launch', id),
