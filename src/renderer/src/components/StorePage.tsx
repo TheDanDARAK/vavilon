@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game, StoreGame, WishlistEntry } from '../../../shared/types'
 import { STORE_GENRES } from '../../../shared/types'
+import { useFeedback } from '../lib/feedback'
 import { StoreGameDialog } from './StoreGameDialog'
 
 /**
@@ -119,6 +120,9 @@ export function StorePage({ games }: { games: Game[] }): React.JSX.Element {
   const [keyReady, setKeyReady] = useState(false)
   const [releases, setReleases] = useState<StoreGame[] | null>(null)
   const [releasesError, setReleasesError] = useState<string | null>(null)
+  const [releasesPage, setReleasesPage] = useState(1)
+  const [releasesHasMore, setReleasesHasMore] = useState(false)
+  const [loadingMoreReleases, setLoadingMoreReleases] = useState(false)
   const [genre, setGenre] = useState<string | null>(null)
   const [releasesTick, setReleasesTick] = useState(0)
   const [recs, setRecs] = useState<StoreGame[] | null>(null)
@@ -130,12 +134,16 @@ export function StorePage({ games }: { games: Game[] }): React.JSX.Element {
   const [searchTerm, setSearchTerm] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<StoreGame[] | null>(null)
+  const [searchPage, setSearchPage] = useState(1)
+  const [searchHasMore, setSearchHasMore] = useState(false)
+  const [loadingMoreSearch, setLoadingMoreSearch] = useState(false)
   const [wishlist, setWishlist] = useState<WishlistEntry[]>([])
   const [similarSource, setSimilarSource] = useState<string | null>(null)
   const [similar, setSimilar] = useState<StoreGame[] | null>(null)
   const [similarName, setSimilarName] = useState('')
   const [similarError, setSimilarError] = useState<string | null>(null)
   const [similarTick, setSimilarTick] = useState(0)
+  const { toast } = useFeedback()
 
   const ownedNames = useMemo(
     () => new Set(games.map((g) => normalizeName(g.name))),
@@ -168,10 +176,13 @@ export function StorePage({ games }: { games: Game[] }): React.JSX.Element {
     let alive = true
     setReleases(null)
     setReleasesError(null)
-    void window.api.storeNewReleases(genre ?? undefined).then((res) => {
+    setReleasesPage(1)
+    setReleasesHasMore(false)
+    void window.api.storeNewReleases(genre ?? undefined, 1).then((res) => {
       if (!alive) return
       if (res.ok && res.data) {
-        setReleases(res.data)
+        setReleases(res.data.items)
+        setReleasesHasMore(res.data.hasMore)
         setHeroIdx(0)
       } else {
         setReleasesError(res.error ?? 'Не удалось загрузить новинки')
@@ -181,6 +192,24 @@ export function StorePage({ games }: { games: Game[] }): React.JSX.Element {
       alive = false
     }
   }, [keyReady, genre, releasesTick])
+
+  const loadMoreReleases = async (): Promise<void> => {
+    if (loadingMoreReleases || !releasesHasMore) return
+    const nextPage = releasesPage + 1
+    setLoadingMoreReleases(true)
+    try {
+      const res = await window.api.storeNewReleases(genre ?? undefined, nextPage)
+      if (res.ok && res.data) {
+        setReleases((current) => [...(current ?? []), ...res.data!.items])
+        setReleasesHasMore(res.data.hasMore)
+        setReleasesPage(nextPage)
+      } else {
+        toast(res.error ?? 'Не удалось загрузить новинки', 'error')
+      }
+    } finally {
+      setLoadingMoreReleases(false)
+    }
+  }
 
   /* recommendations: computed from the library, refetchable via ↻ */
   useEffect(() => {
@@ -241,10 +270,36 @@ export function StorePage({ games }: { games: Game[] }): React.JSX.Element {
     if (q.length < 2) return
     setSearching(true)
     try {
-      const res = await window.api.storeSearch(q)
-      setSearchResults(res.ok && res.data ? res.data : [])
+      const res = await window.api.storeSearch(q, 1)
+      if (res.ok && res.data) {
+        setSearchResults(res.data.items)
+        setSearchHasMore(res.data.hasMore)
+      } else {
+        setSearchResults([])
+        setSearchHasMore(false)
+        toast(res.error ?? 'Не удалось выполнить поиск', 'error')
+      }
+      setSearchPage(1)
     } finally {
       setSearching(false)
+    }
+  }
+
+  const loadMoreSearch = async (): Promise<void> => {
+    if (loadingMoreSearch || !searchHasMore) return
+    const nextPage = searchPage + 1
+    setLoadingMoreSearch(true)
+    try {
+      const res = await window.api.storeSearch(searchTerm.trim(), nextPage)
+      if (res.ok && res.data) {
+        setSearchResults((current) => [...(current ?? []), ...res.data!.items])
+        setSearchHasMore(res.data.hasMore)
+        setSearchPage(nextPage)
+      } else {
+        toast(res.error ?? 'Не удалось загрузить результаты', 'error')
+      }
+    } finally {
+      setLoadingMoreSearch(false)
     }
   }
 
@@ -460,6 +515,13 @@ export function StorePage({ games }: { games: Game[] }): React.JSX.Element {
                 ))}
               </Row>
             )}
+            {releasesHasMore && (
+              <div className="store-more">
+                <button className="btn" disabled={loadingMoreReleases} onClick={() => void loadMoreReleases()}>
+                  {loadingMoreReleases ? 'Загрузка…' : 'Показать ещё'}
+                </button>
+              </div>
+            )}
           </section>
 
           {/* catalogue search */}
@@ -487,6 +549,13 @@ export function StorePage({ games }: { games: Game[] }): React.JSX.Element {
                 {searchResults.map((g) => (
                   <StoreCard key={g.id} game={g} {...badges(g)} onOpen={setDetailsId} />
                 ))}
+              </div>
+            )}
+            {searchHasMore && (
+              <div className="store-more">
+                <button className="btn" disabled={loadingMoreSearch} onClick={() => void loadMoreSearch()}>
+                  {loadingMoreSearch ? 'Загрузка…' : 'Показать ещё'}
+                </button>
               </div>
             )}
           </section>

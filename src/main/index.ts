@@ -3,7 +3,7 @@ import { join, extname, isAbsolute } from 'path'
 import { existsSync } from 'fs'
 import { cpSync } from 'fs'
 import { pathToFileURL } from 'url'
-import { registerLibraryIpc } from './library'
+import { registerLibraryIpc, ensureDailyBackup } from './library'
 import { registerMetadataIpc } from './metadata'
 import { registerRunnerIpc } from './runner'
 import { registerProfileIpc } from './profile'
@@ -16,6 +16,7 @@ import { registerGbeSetupIpc } from './achievements/gbeSetup'
 import { registerSavesIpc, registerGeneralIpc } from './saves/saveIpc'
 import { registerStoreIpc } from './store'
 import { registerTorrentsIpc } from './torrents'
+import { registerUpdatesIpc } from './updates'
 import { applyAutostart } from './saves/saveSettings'
 import { createTray, shouldHideToTray, markQuitting } from './tray'
 
@@ -63,7 +64,7 @@ function registerMediaProtocol(): void {
 
 const MEDIA_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.bmp'])
 
-function createWindow(): void {
+function createWindow(hidden = false): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -72,6 +73,8 @@ function createWindow(): void {
     backgroundColor: '#0f1115',
     autoHideMenuBar: true,
     title: 'Vavilon',
+    // shown on ready-to-show unless the app was started by the login item
+    show: !hidden,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -81,6 +84,11 @@ function createWindow(): void {
       sandbox: true
     }
   })
+
+  if (hidden) {
+    // never leave a blank hidden window if loading fails
+    mainWindow.webContents.once('did-fail-load', () => mainWindow?.show())
+  }
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -94,10 +102,22 @@ function createWindow(): void {
     }
   })
 
-  // Open external links in the default browser, not inside the app
+  // Open external links in the default browser, not inside the app.
+  // Only http(s) is allowed: a description link must never hand arbitrary
+  // protocols (file:, steam:, custom handlers) to the OS.
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url)
+    if (/^https?:\/\//i.test(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // Keep the app window on the app itself. Without this a link inside a store
+  // description would navigate the window to a remote page — and that page
+  // would still receive the preload bridge (window.api).
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const current = mainWindow?.webContents.getURL()
+    if (url === current) return
+    event.preventDefault()
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -124,6 +144,7 @@ if (app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     setupUserData()
+    ensureDailyBackup()
     registerMediaProtocol()
     registerLibraryIpc(ipcMain)
     registerMetadataIpc(ipcMain)
@@ -135,8 +156,14 @@ if (app.requestSingleInstanceLock()) {
     registerGeneralIpc()
     registerStoreIpc(ipcMain)
     registerTorrentsIpc(ipcMain)
+    registerUpdatesIpc()
 
-    createWindow()
+    ipcMain.handle('app:openDataDir', async () => {
+      await shell.openPath(app.getPath('userData'))
+      return true
+    })
+
+    createWindow(process.argv.includes('--hidden'))
     createTray()
     applyAutostart()
     startAchievementWatcher()

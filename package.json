@@ -1,6 +1,6 @@
 {
   "name": "vavilon",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Vavilon — игровой комбайн: библиотека игр, достижения через Steam-эмуляцию, облачные сохранения",
   "main": "out/main/index.js",
   "author": "TheDanDARAK",
@@ -10,6 +10,8 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dist": "electron-vite build && electron-builder --win"
   },
   "devDependencies": {
@@ -20,7 +22,8 @@
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   },
   "dependencies": {
     "7z-wasm": "^1.2.0",

@@ -2,11 +2,11 @@ import { existsSync, readFileSync, statSync, mkdirSync, writeFileSync } from 'fs
 import { createHash } from 'crypto'
 import { readdir, stat, mkdir, copyFile, rename, writeFile, rm } from 'fs/promises'
 import { join, dirname, basename } from 'path'
-import { app, dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain, net } from 'electron'
 import SevenZip from '7z-wasm'
 import { getGames, updateGame } from '../library'
 import { installSchema, type SchemaInstallResult } from './steamSchema'
-import { syncNowSilently } from './watcher'
+import { syncNowSilently, invalidateSchemaCache } from './watcher'
 import { saveRoots, saveFilesForAppId, type RuntimeAchEntry } from './emuSaves'
 
 /**
@@ -142,7 +142,10 @@ async function findSteamApiDll(gameDir: string): Promise<string | null> {
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
+  const res = await net.fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(15000)
+  })
   if (!res.ok) throw new Error(`GitHub вернул ${res.status}`)
   return res.json()
 }
@@ -209,7 +212,11 @@ async function findGbeRelease(): Promise<GbeRelease> {
  * extractor receives the bytes straight from RAM.
  */
 async function downloadAndExtractGbe(rel: GbeRelease, outDir: string): Promise<void> {
-  const res = await fetch(rel.url, { headers: { 'User-Agent': USER_AGENT } })
+  const res = await net.fetch(rel.url, {
+    headers: { 'User-Agent': USER_AGENT },
+    // release archives are tens of MB — allow more time than the JSON calls
+    signal: AbortSignal.timeout(120000)
+  })
   if (!res.ok) throw new Error(`Скачивание вернуло ${res.status}`)
   const buf = Buffer.from(await res.arrayBuffer())
   // GitHub publishes sha256 digests for release assets — verify before unpacking
@@ -456,7 +463,10 @@ async function downloadCover(appId: number, dest: string): Promise<boolean> {
   ]
   for (const url of urls) {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
+      const res = await net.fetch(url, {
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(20000)
+      })
       const type = res.headers.get('content-type') ?? ''
       if (res.ok && type.startsWith('image')) {
         await mkdir(dirname(dest), { recursive: true })
@@ -948,12 +958,16 @@ export function registerGbeSetupIpc(): void {
 
   // safe: configuration files only, no DLL is ever touched
   ipcMain.handle('gbe:schema', async (_event, gameId: string) => {
-    return setupSchema(gameId)
+    const result = await setupSchema(gameId)
+    invalidateSchemaCache(gameId)
+    return result
   })
 
   // full repair: replaces the game DLL (backup first) — explicit user action
   ipcMain.handle('gbe:install', async (_event, gameId: string) => {
     const report = await installEmulator(gameId)
+    // the schema on disk just changed — make the watcher re-read it
+    invalidateSchemaCache(gameId)
     // import any unlocks the emulator has already written
     syncNowSilently()
     return report
@@ -973,7 +987,9 @@ export function registerGbeSetupIpc(): void {
   })
 
   ipcMain.handle('gbe:restore', async (_event, gameId: string) => {
-    return restoreSteamEmulation(gameId)
+    const result = await restoreSteamEmulation(gameId)
+    invalidateSchemaCache(gameId)
+    return result
   })
 
   ipcMain.handle('gbe:resetAch', async (_event, gameId: string) => {

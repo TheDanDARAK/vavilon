@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
+import { net } from 'electron'
+import { parseAchievementsPage } from '../steamAchievementParsing'
 
 /**
  * Keyless Steam achievement schema fetcher.
@@ -18,22 +20,10 @@ import { join } from 'path'
  * names, descriptions, icons and rarity.
  */
 
-const ACH_PAGE_REGEX =
-  /\{"internal_key":\d+,"api_name":"([^"]+)","name":"([^"]*)","description":"([^"]*)","hidden":(true|false),"archived":(?:true|false),"icon_achieved":"([^"]+)","icon_unachieved":"([^"]+)"/g
-
 const ICON_CDN_HOSTS = [
   'https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps',
   'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps'
 ]
-
-export interface CommunityAch {
-  api: string
-  name: string
-  description: string
-  hidden: boolean
-  iconHash: string
-  iconGrayHash: string
-}
 
 export interface SchemaInstallResult {
   total: number
@@ -51,32 +41,20 @@ async function fetchPage(appId: number, language: 'english' | 'russian'): Promis
   if (language === 'russian') {
     headers.Cookie = 'Steam_Language=russian'
   }
-  const res = await fetch(pageUrl(appId), { headers })
+  const res = await net.fetch(pageUrl(appId), {
+    headers,
+    signal: AbortSignal.timeout(20000)
+  })
   if (!res.ok) throw new Error(`steamcommunity вернул ${res.status}`)
   return res.text()
-}
-
-export function parseAchievementsPage(html: string): CommunityAch[] {
-  const unescaped = html.replaceAll('\\"', '"')
-  const out: CommunityAch[] = []
-  for (const m of unescaped.matchAll(ACH_PAGE_REGEX)) {
-    out.push({
-      api: m[1],
-      name: m[2],
-      description: m[3],
-      hidden: m[4] === 'true',
-      iconHash: m[5],
-      iconGrayHash: m[6]
-    })
-  }
-  return out
 }
 
 async function fetchRarity(appId: number): Promise<Map<string, number>> {
   const map = new Map<string, number>()
   try {
-    const res = await fetch(
-      `https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${appId}`
+    const res = await net.fetch(
+      `https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${appId}`,
+      { signal: AbortSignal.timeout(15000) }
     )
     if (!res.ok) return map
     const data = (await res.json()) as {
@@ -94,7 +72,9 @@ async function fetchRarity(appId: number): Promise<Map<string, number>> {
 async function downloadIcon(appId: number, hash: string): Promise<Buffer | null> {
   for (const host of ICON_CDN_HOSTS) {
     try {
-      const res = await fetch(`${host}/${appId}/${hash}`)
+      const res = await net.fetch(`${host}/${appId}/${hash}`, {
+        signal: AbortSignal.timeout(20000)
+      })
       if (res.ok) return Buffer.from(await res.arrayBuffer())
     } catch {
       // try the next mirror

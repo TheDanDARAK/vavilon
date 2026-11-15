@@ -24,7 +24,23 @@ export interface LudusaviBackupResult {
   raw?: unknown
 }
 
-const canonicalNameCache = new Map<number, string | null>()
+/**
+ * `find` is only a name lookup, but it spawns the CLI. A short timeout keeps a
+ * hung ludusavi from delaying a game launch (the default 10 min is meant for
+ * full backup/restore runs).
+ */
+const FIND_TIMEOUT_MS = 20_000
+
+/** Successful lookups are stable; misses are retried sooner (transient errors). */
+const NAME_HIT_TTL_MS = 30 * 60_000
+const NAME_MISS_TTL_MS = 3 * 60_000
+
+interface CachedName {
+  name: string | null
+  at: number
+}
+
+const canonicalNameCache = new Map<number, CachedName>()
 
 function runCli(
   args: string[],
@@ -73,22 +89,28 @@ function configDir(): string {
   return dir
 }
 
-/** Resolves the canonical ludusavi game name by Steam AppID (cached). */
+/** Resolves the canonical ludusavi game name by Steam AppID (cached with TTL). */
 export async function findNameByAppId(appId: number): Promise<string | null> {
-  if (canonicalNameCache.has(appId)) return canonicalNameCache.get(appId) ?? null
+  const cached = canonicalNameCache.get(appId)
+  const ttl = cached?.name ? NAME_HIT_TTL_MS : NAME_MISS_TTL_MS
+  if (cached && Date.now() - cached.at < ttl) return cached.name
+
   try {
-    const { code, stdout } = await runCli(['find', '--steam-id', String(appId), '--api'])
+    const { code, stdout } = await runCli(
+      ['find', '--steam-id', String(appId), '--api'],
+      FIND_TIMEOUT_MS
+    )
     if (code !== 0 || !stdout.trim()) {
-      canonicalNameCache.set(appId, null)
+      canonicalNameCache.set(appId, { name: null, at: Date.now() })
       return null
     }
     const data = JSON.parse(stdout) as { games?: Record<string, unknown> }
     const names = Object.keys(data.games ?? {})
     const name = names.length > 0 ? names[0] : null
-    canonicalNameCache.set(appId, name)
+    canonicalNameCache.set(appId, { name, at: Date.now() })
     return name
   } catch {
-    canonicalNameCache.set(appId, null)
+    canonicalNameCache.set(appId, { name: null, at: Date.now() })
     return null
   }
 }
@@ -163,7 +185,7 @@ export async function buildWrapCommand(
   if (game.appId) gameName = await findNameByAppId(game.appId)
   if (!gameName) {
     try {
-      const { code, stdout } = await runCli(['find', game.name, '--api'])
+      const { code, stdout } = await runCli(['find', game.name, '--api'], FIND_TIMEOUT_MS)
       if (code === 0 && stdout.trim()) {
         const data = JSON.parse(stdout) as { games?: Record<string, unknown> }
         const names = Object.keys(data.games ?? {})

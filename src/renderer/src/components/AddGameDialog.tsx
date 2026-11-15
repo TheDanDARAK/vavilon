@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Game } from '../../../shared/types'
+import { useFeedback } from '../lib/feedback'
 import { SteamSearchField } from './SteamSearchField'
 
 export function AddGameDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
@@ -7,6 +8,7 @@ export function AddGameDialog({ onClose }: { onClose: () => void }): React.JSX.E
   const [exePath, setExePath] = useState('')
   const [appId, setAppId] = useState('')
   const [busy, setBusy] = useState(false)
+  const { toast } = useFeedback()
 
   const pick = async (): Promise<void> => {
     const picked = await window.api.pickExe()
@@ -27,7 +29,7 @@ export function AddGameDialog({ onClose }: { onClose: () => void }): React.JSX.E
     if (appId && Number.isInteger(appIdNum) && appIdNum > 0) game.appId = appIdNum
     const result = await window.api.addGame(game)
     if (result.duplicated) {
-      alert(`«${result.game.name}» уже есть в библиотеке.`)
+      toast(`«${result.game.name}» уже есть в библиотеке`, 'warning')
     } else if (result.game.appId) {
       // best-effort metadata pull; the library stays usable if it fails
       void window.api.syncGameMetadata(result.game.id)

@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game, GameMetadata } from '../../../shared/types'
+import { formatArgs, parseArgs } from '../../../shared/args'
 import { mediaUrl } from '../lib/media'
+import { useFeedback } from '../lib/feedback'
+import { errorText } from '../lib/errors'
 import { SteamSearchField } from './SteamSearchField'
 
 /**
@@ -20,12 +23,13 @@ export function EditGameDialog({
   const [name, setName] = useState(game.name)
   const [exePath, setExePath] = useState(game.exePath)
   const [workDir, setWorkDir] = useState(game.workDir ?? '')
-  const [args, setArgs] = useState((game.args ?? []).join(' '))
+  const [args, setArgs] = useState(formatArgs(game.args ?? []))
   const [appId, setAppId] = useState(game.appId ? String(game.appId) : '')
   const [coverPath, setCoverPath] = useState(game.coverPath)
   const [busy, setBusy] = useState(false)
   /** Metadata fetched through the search, applied on save */
   const [fetchedMeta, setFetchedMeta] = useState<GameMetadata | null>(null)
+  const { toast } = useFeedback()
 
   const pickExe = async (): Promise<void> => {
     const picked = await window.api.pickExe()
@@ -61,7 +65,7 @@ export function EditGameDialog({
   const syncMeta = async (): Promise<void> => {
     const id = Number(appId)
     if (!appId || !Number.isInteger(id) || id <= 0) {
-      alert('Сначала укажите корректный Steam AppID.')
+      toast('Сначала укажите корректный Steam AppID', 'warning')
       return
     }
     setBusy(true)
@@ -71,10 +75,10 @@ export function EditGameDialog({
         setFetchedMeta(meta)
         if (!game.coverPath) setCoverPath(undefined)
       } else {
-        alert('Steam не вернул данные для этого AppID.')
+        toast('Steam не вернул данные для этого AppID', 'warning')
       }
     } catch (e) {
-      alert(`Ошибка сети: ${e instanceof Error ? e.message : String(e)}`)
+      toast(`Ошибка сети: ${errorText(e)}`, 'error')
     } finally {
       setBusy(false)
     }
@@ -90,7 +94,7 @@ export function EditGameDialog({
       exePath,
       // empty working dir → falls back to the exe folder everywhere in the main process
       workDir: workDir.trim() || undefined,
-      args: args.trim() ? args.trim().split(/\s+/) : [],
+      args: parseArgs(args),
       appId: appIdFinal,
       ...(fetchedMeta && fetchedMeta.appId === appIdFinal ? { metadata: fetchedMeta } : {})
     })

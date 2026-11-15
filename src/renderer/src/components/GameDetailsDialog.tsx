@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game } from '../../../shared/types'
 import { mediaUrl } from '../lib/media'
+import { sanitizeHtml } from '../lib/sanitizeHtml'
+import { useFeedback } from '../lib/feedback'
 import { TorrentSearchDialog } from './TorrentSearchDialog'
 
 /**
@@ -21,12 +23,19 @@ export function GameDetailsDialog({
   const [showTrailer, setShowTrailer] = useState(false)
   const [bigShot, setBigShot] = useState<string | null>(null)
   const [torrentOpen, setTorrentOpen] = useState(false)
+  const { toast } = useFeedback()
+
+  // Steam descriptions are third-party HTML — render only sanitized markup
+  const descriptionHtml = useMemo(
+    () => sanitizeHtml(meta?.fullDescription),
+    [meta?.fullDescription]
+  )
 
   const refresh = async (): Promise<void> => {
     setBusy(true)
     try {
       const result = await window.api.syncGameMetadata(game.id)
-      if (!result.ok) alert(result.message ?? 'Не удалось загрузить метаданные')
+      if (!result.ok) toast(result.message ?? 'Не удалось загрузить метаданные', 'error')
     } finally {
       setBusy(false)
     }
@@ -152,12 +161,12 @@ export function GameDetailsDialog({
             </>
           )}
 
-          {meta?.fullDescription && (
+          {descriptionHtml && (
             <>
               <h4 className="details-section-title">Об игре</h4>
               <div
                 className={`details-desc ${showFull ? '' : 'collapsed'}`}
-                dangerouslySetInnerHTML={{ __html: meta.fullDescription }}
+                dangerouslySetInnerHTML={{ __html: descriptionHtml }}
               />
               {!showFull && (
                 <button className="btn btn-ghost" onClick={() => setShowFull(true)}>

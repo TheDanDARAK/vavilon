@@ -3,6 +3,7 @@ import type {
   GameScreenshot,
   StoreGame,
   StoreGameDetails,
+  StoreList,
   StoreRecommendation,
   StoreResult,
   WishlistEntry
@@ -49,10 +50,35 @@ interface RawgDetails extends RawgGame {
   screenshots?: Array<{ image?: string }>
 }
 
+interface RawgList {
+  results?: RawgGame[]
+  /** Total matches across all pages */
+  count?: number
+  /** RAWG returns null on the last page */
+  next?: string | null
+}
+
 /* ---------- low-level plumbing ---------- */
 
 /** Tiny in-memory TTL cache so switching tabs never hammers the rate limit */
 const cache = new Map<string, { at: number; data: unknown }>()
+const CACHE_MAX_ENTRIES = 300
+
+function cacheSet(url: string, data: unknown): void {
+  // prune expired entries first, then evict the oldest ones (Map keeps insertion order)
+  if (cache.size >= CACHE_MAX_ENTRIES) {
+    const now = Date.now()
+    for (const [key, entry] of cache) {
+      if (now - entry.at >= CACHE_TTL_MS) cache.delete(key)
+    }
+  }
+  while (cache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value
+    if (oldest === undefined) break
+    cache.delete(oldest)
+  }
+  cache.set(url, { at: Date.now(), data })
+}
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await net.fetch(url, {
@@ -74,7 +100,7 @@ async function rawg<T>(path: string, params: Record<string, string>): Promise<T>
   const cached = cache.get(url)
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data as T
   const data = await fetchJson<T>(url)
-  cache.set(url, { at: Date.now(), data })
+  cacheSet(url, data)
   return data
 }
 
@@ -96,6 +122,15 @@ function toStoreGame(g: RawgGame): StoreGame {
     rating: g.rating,
     metacritic: g.metacritic,
     genres: (g.genres ?? []).map((x) => x.name ?? '').filter(Boolean)
+  }
+}
+
+function toStoreList(data: RawgList): StoreList<StoreGame> {
+  const items = (data.results ?? []).map(toStoreGame)
+  return {
+    items,
+    total: data.count ?? items.length,
+    hasMore: Boolean(data.next) && items.length > 0
   }
 }
 
@@ -237,17 +272,21 @@ export async function storeSimilarForLibraryGame(
 }
 
 /** New releases from the last 60 days, optionally filtered by one genre */
-export async function storeNewReleases(genreSlug?: string): Promise<StoreResult<StoreGame[]>> {
+export async function storeNewReleases(
+  genreSlug?: string,
+  page = 1
+): Promise<StoreResult<StoreList<StoreGame>>> {
   if (!apiKey()) return fail(new Error('NO_KEY'))
   try {
     const params: Record<string, string> = {
       dates: dateRange(),
       ordering: '-released',
-      page_size: String(PAGE_SIZE)
+      page_size: String(PAGE_SIZE),
+      page: String(Math.max(1, Math.trunc(page)))
     }
     if (genreSlug) params.genres = genreSlug
-    const data = await rawg<{ results?: RawgGame[] }>('/games', params)
-    return { ok: true, data: (data.results ?? []).map(toStoreGame) }
+    const data = await rawg<RawgList>('/games', params)
+    return { ok: true, data: toStoreList(data) }
   } catch (e) {
     return fail(e)
   }
@@ -301,16 +340,20 @@ export async function storeDetails(id: number): Promise<StoreResult<StoreGameDet
 }
 
 /** Catalogue search (used by the storefront search field) */
-export async function storeSearch(term: string): Promise<StoreResult<StoreGame[]>> {
+export async function storeSearch(
+  term: string,
+  page = 1
+): Promise<StoreResult<StoreList<StoreGame>>> {
   if (!apiKey()) return fail(new Error('NO_KEY'))
   const q = term.trim()
-  if (q.length < 2) return { ok: true, data: [] }
+  if (q.length < 2) return { ok: true, data: { items: [], total: 0, hasMore: false } }
   try {
-    const data = await rawg<{ results?: RawgGame[] }>('/games', {
+    const data = await rawg<RawgList>('/games', {
       search: q,
-      page_size: String(PAGE_SIZE)
+      page_size: String(PAGE_SIZE),
+      page: String(Math.max(1, Math.trunc(page)))
     })
-    return { ok: true, data: (data.results ?? []).map(toStoreGame) }
+    return { ok: true, data: toStoreList(data) }
   } catch (e) {
     return fail(e)
   }
@@ -326,13 +369,17 @@ export function registerStoreIpc(ipc: typeof ipcMain): void {
     return next.store.rawgApiKey
   })
 
-  ipc.handle('store:newReleases', (_event, genre?: string) => storeNewReleases(genre || undefined))
+  ipc.handle('store:newReleases', (_event, genre?: string, page?: number) =>
+    storeNewReleases(genre || undefined, page ?? 1)
+  )
 
   ipc.handle('store:recommend', () => storeRecommendations())
 
   ipc.handle('store:details', (_event, id: number) => storeDetails(id))
 
-  ipc.handle('store:search', (_event, term: string) => storeSearch(term))
+  ipc.handle('store:search', (_event, term: string, page?: number) =>
+    storeSearch(term, page ?? 1)
+  )
 
   ipc.handle('store:similar', (_event, id: number) => storeSimilar(id))
 

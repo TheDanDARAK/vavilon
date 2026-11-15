@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { AchievementSettings, GeneralSettings } from '../../../shared/types'
+import type { AchievementSettings, GeneralSettings, UpdateInfo } from '../../../shared/types'
 
 /**
  * Full settings dialog: window behaviour (tray, autostart), achievements
@@ -19,12 +19,31 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
   const [general, setGeneral] = useState<GeneralSettings | null>(null)
   const [ach, setAch] = useState<AchievementSettings | null>(null)
   const [storeKey, setStoreKey] = useState('')
+  const [version, setVersion] = useState('')
+  const [update, setUpdate] = useState<UpdateInfo | null>(null)
+  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
     void window.api.getGeneralSettings().then(setGeneral)
     void window.api.getAchSettings().then(setAch)
     void window.api.storeGetKey().then(setStoreKey)
+    void window.api.getAppVersion().then(setVersion)
   }, [])
+
+  const checkForUpdates = async (): Promise<void> => {
+    setChecking(true)
+    try {
+      setUpdate(await window.api.checkUpdates())
+    } catch (e) {
+      setUpdate({
+        current: version,
+        updateAvailable: false,
+        error: e instanceof Error ? e.message : String(e)
+      })
+    } finally {
+      setChecking(false)
+    }
+  }
 
   const patchGeneral = async (part: Partial<GeneralSettings>): Promise<void> => {
     setGeneral(await window.api.setGeneralSettings(part))
@@ -142,6 +161,48 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
               onClick={() => void window.api.storeSetKey(storeKey.trim())}
             >
               Сохранить ключ
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-group">
+          <div className="settings-group-title">Обновления</div>
+          <div className="settings-version">
+            Версия лаунчера: <b>{version || '…'}</b>
+          </div>
+          <div className="dialog-actions">
+            <button className="btn" disabled={checking} onClick={() => void checkForUpdates()}>
+              {checking ? 'Проверяю…' : 'Проверить обновления'}
+            </button>
+            {update?.updateAvailable && update.url && (
+              <button
+                className="btn btn-primary"
+                onClick={() => void window.api.openReleasePage(update.url as string)}
+              >
+                Открыть {update.latest}
+              </button>
+            )}
+          </div>
+          {update && !update.error && (
+            <small className="store-key-hint">
+              {update.updateAvailable
+                ? `Доступна новая версия ${update.latest}.`
+                : 'Установлена последняя версия.'}
+            </small>
+          )}
+          {update?.error && (
+            <small className="store-key-hint">Не удалось проверить: {update.error}</small>
+          )}
+        </div>
+
+        <div className="settings-group">
+          <div className="settings-group-title">Данные</div>
+          <div className="settings-version">
+            Библиотека, настройки, кэш и ежедневные копии библиотеки.
+          </div>
+          <div className="dialog-actions">
+            <button className="btn" onClick={() => void window.api.openDataDir()}>
+              Открыть папку данных
             </button>
           </div>
         </div>

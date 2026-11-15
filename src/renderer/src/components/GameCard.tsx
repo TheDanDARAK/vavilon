@@ -5,6 +5,7 @@ import { AchievementsDialog } from './AchievementsDialog'
 import { EditGameDialog } from './EditGameDialog'
 import { GameDetailsDialog } from './GameDetailsDialog'
 import { mediaUrl } from '../lib/media'
+import { useFeedback } from '../lib/feedback'
 
 function formatPlaytime(seconds: number): string {
   if (!seconds) return '—'
@@ -13,24 +14,37 @@ function formatPlaytime(seconds: number): string {
   return h > 0 ? `${h} ч ${m} мин` : `${m} мин`
 }
 
-export function GameCard({ game }: { game: Game }): React.JSX.Element {
+export function GameCard({
+  game,
+  missing = false
+}: {
+  game: Game
+  missing?: boolean
+}): React.JSX.Element {
   const [running, setRunning] = useState(false)
   const [showAch, setShowAch] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(true)
-  const [coverError, setCoverError] = useState(false)
+  const [failedCovers, setFailedCovers] = useState<Set<string>>(new Set())
+  const { confirm } = useFeedback()
 
   useEffect(() => {
     let alive = true
-    void window.api.isRunning(game.id).then((r) => {
-      if (alive) setRunning(r)
+    const apply = (value: boolean): void => {
+      if (alive) setRunning(value)
+    }
+    void window.api.isRunning(game.id).then(apply)
+    // live updates: the badge appears right after launch and clears on exit
+    const off = window.api.onGameRunningChanged((id, value) => {
+      if (id === game.id) apply(value)
     })
     void window.api.getGeneralSettings().then((s) => {
       if (alive) setConfirmDelete(s.confirmDelete)
     })
     return () => {
       alive = false
+      off()
     }
   }, [game.id])
 
@@ -46,26 +60,30 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
     .join('')
 
   /** Local cover first (user's choice), then the internet cover, then initials */
-  const coverSrc = coverError
-    ? undefined
-    : game.coverPath
-      ? mediaUrl(game.coverPath)
-      : game.metadata?.coverUrl
+  const localCover = game.coverPath ? mediaUrl(game.coverPath) : undefined
+  const remoteCover = game.metadata?.coverUrl
+  const coverSrc = [localCover, remoteCover].find((src) => src && !failedCovers.has(src))
 
-  // a failed load must not block a different cover after metadata refresh
+  // a failed load must not block the next fallback or a refreshed cover later
   useEffect(() => {
-    setCoverError(false)
-  }, [coverSrc])
+    setFailedCovers(new Set())
+  }, [localCover, remoteCover])
+
+  const onCoverError = (): void => {
+    if (!coverSrc) return
+    setFailedCovers((current) => new Set(current).add(coverSrc))
+  }
 
   return (
     <div className={running ? 'card running' : 'card'}>
       <div className="cover" onClick={() => setShowAch(true)}>
         {coverSrc ? (
-          <img src={coverSrc} alt={game.name} onError={() => setCoverError(true)} />
+          <img src={coverSrc} alt={game.name} onError={onCoverError} />
         ) : (
           <div className="cover-fallback">{initials}</div>
         )}
         {running && <div className="badge-running">▶ запущена</div>}
+        {missing && <div className="badge-missing">⚠ exe не найден</div>}
       </div>
       <div className="card-body">
         <div className="card-title" title={game.name}>
@@ -87,9 +105,28 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
         )}
       </div>
       <div className="card-actions">
-        <button className="btn btn-play" onClick={() => void window.api.launchGame(game.id)}>
-          Играть
-        </button>
+        {running ? (
+          <button
+            className="btn btn-play btn-stop"
+            title="Остановить игру"
+            onClick={() => void window.api.stopGame(game.id)}
+          >
+            ■ Остановить
+          </button>
+        ) : (
+          <button
+            className="btn btn-play"
+            disabled={missing}
+            title={
+              missing
+                ? 'exe-файл не найден — укажите новый путь в редакторе игры'
+                : undefined
+            }
+            onClick={() => void window.api.launchGame(game.id)}
+          >
+            {missing ? 'Файл не найден' : 'Играть'}
+          </button>
+        )}
         <button className="icon-btn" title="Информация о игре" onClick={() => setShowDetails(true)}>
           ⓘ
         </button>
@@ -101,11 +138,18 @@ export function GameCard({ game }: { game: Game }): React.JSX.Element {
           title="Удалить из библиотеки"
           onClick={() => {
             const doRemove = (): void => void window.api.removeGame(game.id)
-            if (confirmDelete) {
-              if (confirm(`Удалить «${game.name}» из библиотеки?`)) doRemove()
-            } else {
+            if (!confirmDelete) {
               doRemove()
+              return
             }
+            void confirm({
+              title: 'Удалить игру?',
+              message: `«${game.name}» будет удалена из библиотеки. Файлы игры на диске останутся на месте.`,
+              confirmLabel: 'Удалить',
+              danger: true
+            }).then((ok) => {
+              if (ok) doRemove()
+            })
           }}
         >
           ✕

@@ -9,6 +9,29 @@ function isStillRunning(child: ChildProcess): boolean {
   return child.exitCode === null && !child.killed
 }
 
+/** Tells every window that a game started or stopped, so cards update live. */
+function broadcastRunning(id: string, value: boolean): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('games:running', id, value)
+  }
+}
+
+/**
+ * Kills a game together with everything it spawned. `child.kill()` alone only
+ * terminates the wrapper/launcher exe, while the actual game keeps running.
+ */
+function killProcessTree(child: ChildProcess): void {
+  if (process.platform === 'win32' && child.pid) {
+    const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true
+    })
+    killer.on('error', () => child.kill())
+    return
+  }
+  child.kill()
+}
+
 /**
  * Launches a game and tracks the session.
  * When cloud saves are enabled and ludusavi knows the game, the game is started
@@ -48,6 +71,7 @@ async function launchGame(id: string, getWindow: () => BrowserWindow | null): Pr
   })
   child.unref()
   running.set(id, { startedAt, child, wrapped })
+  broadcastRunning(id, true)
 
   // Some games spawn the real game and the launcher exe exits immediately.
   // We detect a quick exit and still record a minimal session.
@@ -55,6 +79,7 @@ async function launchGame(id: string, getWindow: () => BrowserWindow | null): Pr
     const entry = running.get(id)
     if (!entry || entry.child !== child) return
     running.delete(id)
+    broadcastRunning(id, false)
     const playedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
     const current = getGames().find((g) => g.id === id)
     if (current) {
@@ -82,6 +107,7 @@ async function launchGame(id: string, getWindow: () => BrowserWindow | null): Pr
     const entry = running.get(id)
     if (!entry || entry.child !== child) return
     running.delete(id)
+    broadcastRunning(id, false)
     getWindow()?.webContents.send('saves:status', {
       stage: 'launch',
       gameName: game.name,
@@ -108,7 +134,7 @@ export function registerRunnerIpc(ipc: typeof ipcMain, getWindow: () => BrowserW
   ipc.handle('games:stop', (_event, id: string) => {
     const entry = running.get(id)
     if (entry && isStillRunning(entry.child)) {
-      entry.child.kill()
+      killProcessTree(entry.child)
     }
     return true
   })

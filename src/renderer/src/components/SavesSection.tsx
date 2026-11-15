@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { SavesSettings, SavesStatusPayload } from '../../../shared/types'
+import { useFeedback } from '../lib/feedback'
+import { errorText } from '../lib/errors'
 import { SaveStatusToast } from './SaveStatusToast'
 
 export function SavesSection(): React.JSX.Element {
   const [settings, setSettings] = useState<SavesSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<SavesStatusPayload | null>(null)
+  const { show } = useFeedback()
 
   useEffect(() => {
     void window.api.getSavesSettings().then(setSettings)
@@ -50,19 +53,33 @@ export function SavesSection(): React.JSX.Element {
       >
         Папка бэкапов: {settings.backupPath ? 'выбрана ✓' : 'выбрать…'}
       </button>
+      <div className="path-line" title={settings.ludusaviPath || undefined}>
+        {settings.ludusaviPath || 'ludusavi.exe не найден'}
+      </div>
+      <div className="path-line" title={settings.backupPath || undefined}>
+        {settings.backupPath || 'папка бэкапов не выбрана'}
+      </div>
       <button
         className="chip"
-        disabled={busy || !settings.enabled || !settings.backupPath}
+        disabled={busy || !settings.enabled || !settings.backupPath || !settings.ludusaviPath}
         onClick={async () => {
           setBusy(true)
           try {
             const result = await window.api.syncSavesNow()
             const msg = result.unknown.length
-              ? ` (не распознаны: ${result.unknown.join(', ')})`
+              ? `\nНе распознаны: ${result.unknown.join(', ')}`
               : ''
-            alert(
-              `Синхронизация сохранений\n\nуспешно: ${result.processed}\nс ошибками: ${result.failed}${msg}`
-            )
+            await show({
+              title: 'Синхронизация сохранений',
+              message: `Успешно: ${result.processed}\nС ошибками: ${result.failed}${msg}`,
+              tone: result.failed > 0 ? 'warning' : 'success'
+            })
+          } catch (e) {
+            await show({
+              title: 'Ошибка синхронизации',
+              message: errorText(e),
+              tone: 'error'
+            })
           } finally {
             setBusy(false)
           }

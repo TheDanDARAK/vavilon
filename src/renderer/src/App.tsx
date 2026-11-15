@@ -6,6 +6,8 @@ import { UnlockToast } from './components/UnlockToast'
 import { SavesSection } from './components/SavesSection'
 import { GeneralSettingsSection } from './components/GeneralSettingsSection'
 import { StorePage } from './components/StorePage'
+import { useFeedback } from './lib/feedback'
+import { errorText } from './lib/errors'
 
 type SortKey = 'name' | 'lastPlayed' | 'playtime'
 type View = 'library' | 'store'
@@ -19,15 +21,22 @@ function loadSortKey(): SortKey {
 
 export default function App(): React.JSX.Element {
   const [games, setGames] = useState<Game[]>([])
+  const [missingGames, setMissingGames] = useState<Set<string>>(() => new Set())
   const [showAdd, setShowAdd] = useState(false)
   const [view, setView] = useState<View>('library')
   const [sortKey, setSortKey] = useState<SortKey>(loadSortKey)
   const [query, setQuery] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [unlockToast, setUnlockToast] = useState<AchievementUnlockEvent | null>(null)
+  const { toast, show, confirm } = useFeedback()
 
   const refresh = useCallback(async () => {
-    setGames(await window.api.getGames())
+    const [nextGames, missingIds] = await Promise.all([
+      window.api.getGames(),
+      window.api.getMissingGames()
+    ])
+    setGames(nextGames)
+    setMissingGames(new Set(missingIds))
   }, [])
 
   useEffect(() => {
@@ -65,7 +74,7 @@ export default function App(): React.JSX.Element {
       const path = window.api.pathForFile(file)
       if (!path || !path.toLowerCase().endsWith('.exe')) continue
       const result = await window.api.addGame({ exePath: path })
-      if (result.duplicated) alert(`«${result.game.name}» уже есть в библиотеке.`)
+      if (result.duplicated) toast(`«${result.game.name}» уже есть в библиотеке`, 'warning')
     }
   }
 
@@ -140,7 +149,7 @@ export default function App(): React.JSX.Element {
             className="chip"
             onClick={async () => {
               const path = await window.api.exportProfile()
-              if (path) alert(`Профиль сохранён:\n${path}`)
+              if (path) toast(`Профиль сохранён: ${path}`, 'success')
             }}
           >
             Экспорт
@@ -153,13 +162,43 @@ export default function App(): React.JSX.Element {
                   added: number
                   updated: number
                 } | null
-                if (result) alert(`Импортировано: +${result.added} новых, ${result.updated} обновлено`)
+                if (result) {
+                  toast(`Импортировано: +${result.added} новых, ${result.updated} обновлено`, 'success')
+                }
               } catch (e) {
-                alert(`Ошибка импорта: ${String(e)}`)
+                void show({ title: 'Ошибка импорта', message: errorText(e), tone: 'error' })
               }
             }}
           >
             Импорт (слить)
+          </button>
+          <button
+            className="chip"
+            title="Заменить текущую библиотеку содержимым профиля (сначала создаётся бэкап)"
+            onClick={async () => {
+              const ok = await confirm({
+                title: 'Заменить библиотеку?',
+                message:
+                  'Текущая библиотека будет заменена играми из профиля.\n\n' +
+                  'Перед заменой автоматически создаётся library.json.bak, но список игр в лаунчере изменится сразу.',
+                confirmLabel: 'Заменить',
+                danger: true
+              })
+              if (!ok) return
+              try {
+                const result = (await window.api.importProfile('replace')) as {
+                  added: number
+                  updated: number
+                } | null
+                if (result) {
+                  toast(`Библиотека заменена: ${result.added} игр`, 'success')
+                }
+              } catch (e) {
+                void show({ title: 'Ошибка импорта', message: errorText(e), tone: 'error' })
+              }
+            }}
+          >
+            Импорт (заменить)
           </button>
         </div>
         <GeneralSettingsSection />
@@ -202,7 +241,7 @@ export default function App(): React.JSX.Element {
           ) : (
             <div className="grid">
               {visible.map((game) => (
-                <GameCard key={game.id} game={game} />
+                <GameCard key={game.id} game={game} missing={missingGames.has(game.id)} />
               ))}
             </div>
           )}

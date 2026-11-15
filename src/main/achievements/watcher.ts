@@ -1,6 +1,6 @@
 import { Notification, BrowserWindow, ipcMain } from 'electron'
 import type { AchievementRecord, Game } from '../../shared/types'
-import { getGames, updateGame, broadcastChange } from '../library'
+import { getGames, updateGames, broadcastChange } from '../library'
 import { readRuntimeAchievementsForAppId, type RuntimeAchEntry } from './emuSaves'
 import { loadSchema, type GameSchema } from './schema'
 import { loadSettings } from '../saves/saveSettings'
@@ -33,6 +33,17 @@ function schemaFor(game: Game): GameSchema | null {
   const schema = gameDir ? loadSchema(gameDir) : null
   schemaCache.set(game.id, { gameDir, schema })
   return schema
+}
+
+/**
+ * Drops the cached schema for one game (or all games). The cache only notices
+ * a changed game directory, so after installing/updating/removing the emulator
+ * schema in-session it must be invalidated explicitly — otherwise names,
+ * icons and rarity stay missing until the launcher restarts.
+ */
+export function invalidateSchemaCache(gameId?: string): void {
+  if (gameId) schemaCache.delete(gameId)
+  else schemaCache.clear()
 }
 
 function getWindow(): BrowserWindow | null {
@@ -97,8 +108,9 @@ function upsertRecord(
  * Returns true when any game was updated.
  */
 function poll(): boolean {
-  let changed = false
   const games = getGames()
+  const updates: Array<{ id: string; patch: Partial<Game> }> = []
+  const unlocks: Array<{ game: Game; record: AchievementRecord }> = []
 
   for (const game of games) {
     if (!game.appId) continue
@@ -150,12 +162,16 @@ function poll(): boolean {
             .map((a) => stored.get(a.name.toLowerCase()))
             .filter((r): r is AchievementRecord => r !== undefined)
         : Array.from(stored.values())
-      updateGame(game.id, { achievements: ordered })
-      changed = true
-      for (const record of newUnlocks) notifyUnlock(game, record)
+      updates.push({ id: game.id, patch: { achievements: ordered } })
+      for (const record of newUnlocks) unlocks.push({ game, record })
     }
   }
 
+  // one library write + one renderer reload for the whole poll
+  const changed = updateGames(updates)
+  if (changed) {
+    for (const { game, record } of unlocks) notifyUnlock(game, record)
+  }
   return changed
 }
 

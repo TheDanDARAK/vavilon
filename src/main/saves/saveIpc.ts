@@ -73,25 +73,34 @@ export function registerSavesIpc(getWindow: () => BrowserWindow | null): void {
     let processed = 0
     let failed = 0
     const unknown: string[] = []
+    let cursor = 0
 
-    for (const game of games) {
-      let name: string | null = null
-      if (game.appId) name = await findNameByAppId(game.appId)
-      if (!name) {
-        unknown.push(game.name)
-        continue
+    // A few games in parallel: backups are independent, and doing hundreds
+    // strictly one-by-one kept the launcher busy for minutes.
+    const worker = async (): Promise<void> => {
+      while (cursor < games.length) {
+        const game = games[cursor++]
+        let name: string | null = null
+        if (game.appId) name = await findNameByAppId(game.appId)
+        if (!name) {
+          unknown.push(game.name)
+          continue
+        }
+        sendStatus(win, { stage: 'sync', gameName: game.name, ok: true })
+        const result = await backupGame(name)
+        if (result.ok) processed++
+        else failed++
+        sendStatus(win, {
+          stage: 'sync',
+          gameName: game.name,
+          ok: result.ok,
+          message: result.ok ? 'сохранения скопированы' : 'ошибка бэкапа'
+        })
       }
-      sendStatus(win, { stage: 'sync', gameName: game.name, ok: true })
-      const result = await backupGame(name)
-      if (result.ok) processed++
-      else failed++
-      sendStatus(win, {
-        stage: 'sync',
-        gameName: game.name,
-        ok: result.ok,
-        message: result.ok ? 'сохранения скопированы' : 'ошибка бэкапа'
-      })
     }
+
+    const workers = Math.min(3, Math.max(1, games.length))
+    await Promise.all(Array.from({ length: workers }, () => worker()))
 
     return { processed, failed, unknown }
   })

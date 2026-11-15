@@ -117,6 +117,14 @@ export interface StoreGame {
   genres?: string[]
 }
 
+/** One page of catalogue results (RAWG is paginated 24 items at a time) */
+export interface StoreList<T> {
+  items: T[]
+  /** Total number of matches reported by RAWG */
+  total: number
+  hasMore: boolean
+}
+
 /** Full storefront game details, fetched on demand when a card is opened */
 export interface StoreGameDetails extends StoreGame {
   description?: string
@@ -202,6 +210,15 @@ export interface TorrentSearchPage {
 export interface TorrentResultEnvelope<T> {
   ok: boolean
   data?: T
+  error?: string
+}
+
+/** Result of the GitHub Releases update check */
+export interface UpdateInfo {
+  current: string
+  latest?: string
+  url?: string
+  updateAvailable: boolean
   error?: string
 }
 

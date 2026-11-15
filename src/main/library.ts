@@ -2,6 +2,7 @@ import { ipcMain, dialog, app, BrowserWindow } from 'electron'
 import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, mkdirSync, rmSync, readdirSync } from 'fs'
 import { join, dirname, basename, extname } from 'path'
 import type { Game, WishlistEntry } from '../shared/types'
+import { sanitizeGamePatch } from './gamePatch'
 
 export type { Game, AchievementRecord, WishlistEntry } from '../shared/types'
 
@@ -104,6 +105,57 @@ export function updateGame(id: string, patch: Partial<Game>): void {
   }
 }
 
+/**
+ * Applies several game patches with a single read, write and broadcast.
+ * The achievement watcher can touch many games in one poll; doing that one
+ * game at a time caused a full library rewrite and renderer reload per game.
+ */
+export function updateGames(patches: Array<{ id: string; patch: Partial<Game> }>): boolean {
+  if (patches.length === 0) return false
+  const lib = loadLibrary()
+  const byId = new Map(patches.map((item) => [item.id, item.patch]))
+  let changed = false
+  lib.games = lib.games.map((game) => {
+    const patch = byId.get(game.id)
+    if (!patch) return game
+    changed = true
+    return { ...game, ...patch }
+  })
+  if (changed) {
+    saveLibrary(lib)
+    broadcastChange()
+  }
+  return changed
+}
+
+const BACKUP_KEEP = 7
+
+/**
+ * Once per day, keeps a dated copy of library.json in userData/backups and
+ * prunes older ones. The .bak file only covers destructive operations, so a
+ * silently corrupted library used to have no older recovery point.
+ */
+export function ensureDailyBackup(): void {
+  const source = libraryPath()
+  if (!existsSync(source)) return
+  const dir = join(app.getPath('userData'), 'backups')
+  const day = new Date().toISOString().slice(0, 10)
+  const dest = join(dir, `library-${day}.json`)
+  if (existsSync(dest)) return
+  try {
+    mkdirSync(dir, { recursive: true })
+    copyFileSync(source, dest)
+    const backups = readdirSync(dir)
+      .filter((name) => /^library-\d{4}-\d{2}-\d{2}\.json$/.test(name))
+      .sort()
+    for (const old of backups.slice(0, Math.max(0, backups.length - BACKUP_KEEP))) {
+      rmSync(join(dir, old))
+    }
+  } catch {
+    // backups are best-effort — never block startup over them
+  }
+}
+
 function newId(): string {
   return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -126,14 +178,26 @@ export function saveGames(games: Game[]): void {
 export function registerLibraryIpc(ipc: typeof ipcMain): void {
   ipc.handle('games:list', () => getGames())
 
+  /** IDs of games whose exe is no longer on disk (moved/deleted installs). */
+  ipc.handle('games:missing', () =>
+    getGames()
+      .filter((game) => !existsSync(game.exePath))
+      .map((game) => game.id)
+  )
+
   ipc.handle('games:add', async (event, game: Partial<Game> & { exePath: string }) => {
+    if (!game || typeof game.exePath !== 'string' || !game.exePath.trim()) {
+      throw new Error('Не указан exe-файл игры')
+    }
+    const clean = sanitizeGamePatch(game)
+    const exePath = clean.exePath as string
     const lib = loadLibrary()
 
     // Duplicate protection: same exe (or same Steam appId) is already in the library
     const existing = lib.games.find(
       (g) =>
-        g.exePath.toLowerCase() === game.exePath.toLowerCase() ||
-        (game.appId !== undefined && g.appId !== undefined && g.appId === game.appId)
+        g.exePath.toLowerCase() === exePath.toLowerCase() ||
+        (clean.appId !== undefined && g.appId !== undefined && g.appId === clean.appId)
     )
     if (existing) {
       return { game: existing, duplicated: true }
@@ -141,15 +205,15 @@ export function registerLibraryIpc(ipc: typeof ipcMain): void {
 
     const gameToAdd: Game = {
       id: newId(),
-      name: game.name || basename(game.exePath, '.exe'),
-      exePath: game.exePath,
-      workDir: game.workDir || dirname(game.exePath),
-      args: game.args || [],
-      appId: game.appId,
-      coverPath: game.coverPath,
-      playtimeSeconds: game.playtimeSeconds ?? 0,
+      name: clean.name || basename(exePath, '.exe'),
+      exePath,
+      workDir: clean.workDir || dirname(exePath),
+      args: clean.args ?? [],
+      appId: clean.appId,
+      coverPath: clean.coverPath,
+      playtimeSeconds: clean.playtimeSeconds ?? 0,
       addedAt: Date.now(),
-      achievements: game.achievements || []
+      achievements: clean.achievements ?? []
     }
     lib.games.push(gameToAdd)
     saveLibrary(lib)
@@ -158,7 +222,8 @@ export function registerLibraryIpc(ipc: typeof ipcMain): void {
   })
 
   ipc.handle('games:update', (_event, id: string, patch: Partial<Game>) => {
-    updateGame(id, patch)
+    if (typeof id !== 'string' || !id) return false
+    updateGame(id, sanitizeGamePatch(patch))
     return true
   })
 

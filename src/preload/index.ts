@@ -10,15 +10,18 @@ import type {
   SteamSearchHit,
   StoreGame,
   StoreGameDetails,
+  StoreList,
   StoreRecommendation,
   StoreResult,
   TorrentResultEnvelope,
   TorrentSearchPage,
+  UpdateInfo,
   WishlistEntry
 } from '../shared/types'
 
 const api = {
   getGames: (): Promise<Game[]> => ipcRenderer.invoke('games:list'),
+  getMissingGames: (): Promise<string[]> => ipcRenderer.invoke('games:missing'),
   addGame: (
     game: Partial<Game> & { exePath: string }
   ): Promise<{ game: Game; duplicated: boolean }> => ipcRenderer.invoke('games:add', game),
@@ -43,14 +46,14 @@ const api = {
   /** Storefront (RAWG): the API key plus catalogue requests */
   storeGetKey: (): Promise<string> => ipcRenderer.invoke('store:getKey'),
   storeSetKey: (key: string): Promise<string> => ipcRenderer.invoke('store:setKey', key),
-  storeNewReleases: (genre?: string): Promise<StoreResult<StoreGame[]>> =>
-    ipcRenderer.invoke('store:newReleases', genre),
+  storeNewReleases: (genre?: string, page?: number): Promise<StoreResult<StoreList<StoreGame>>> =>
+    ipcRenderer.invoke('store:newReleases', genre, page),
   storeRecommend: (): Promise<StoreResult<StoreRecommendation>> =>
     ipcRenderer.invoke('store:recommend'),
   storeDetails: (id: number): Promise<StoreResult<StoreGameDetails>> =>
     ipcRenderer.invoke('store:details', id),
-  storeSearch: (term: string): Promise<StoreResult<StoreGame[]>> =>
-    ipcRenderer.invoke('store:search', term),
+  storeSearch: (term: string, page?: number): Promise<StoreResult<StoreList<StoreGame>>> =>
+    ipcRenderer.invoke('store:search', term, page),
   /** "Similar" suggestions: for a library game (resolved by name) or a RAWG id */
   storeSimilarForGame: (
     gameId: string
@@ -111,6 +114,11 @@ const api = {
     ipcRenderer.invoke('gbe:restore', gameId),
   resetAchievements: (gameId: string): Promise<{ cleared: number; files: string[] }> =>
     ipcRenderer.invoke('gbe:resetAch', gameId),
+  /** Launcher version + GitHub Releases update check */
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('updates:version'),
+  checkUpdates: (): Promise<UpdateInfo> => ipcRenderer.invoke('updates:check'),
+  openReleasePage: (url: string): Promise<boolean> => ipcRenderer.invoke('updates:open', url),
+  openDataDir: (): Promise<boolean> => ipcRenderer.invoke('app:openDataDir'),
   onSaveStatus: (callback: (payload: SavesStatusPayload) => void): (() => void) => {
     const listener = (_e: unknown, payload: SavesStatusPayload): void => callback(payload)
     ipcRenderer.on('saves:status', listener)
@@ -127,6 +135,12 @@ const api = {
     const listener = (): void => callback()
     ipcRenderer.on('games:changed', listener)
     return () => ipcRenderer.removeListener('games:changed', listener)
+  },
+  /** Live running state of one game (id, running) */
+  onGameRunningChanged: (callback: (id: string, running: boolean) => void): (() => void) => {
+    const listener = (_e: unknown, id: string, running: boolean): void => callback(id, running)
+    ipcRenderer.on('games:running', listener)
+    return () => ipcRenderer.removeListener('games:running', listener)
   }
 }
 

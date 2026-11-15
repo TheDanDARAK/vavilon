@@ -18,6 +18,7 @@ Vavilon — персональный лаунчер для Windows, объеди
 | ☁️ Сохранения | ludusavi wrap: restore перед запуском → игра → backup после выхода |
 | 🔔 Попапы | Всплывашки в лаунчере + системные уведомления Windows |
 | 📌 Трей | Скрытие в трей, автозапуск с Windows — уведомления работают всегда |
+| 🔄 Обновления | Проверка новых релизов на GitHub из окна настроек |
 
 ## Сборка из исходников
 
@@ -34,13 +35,21 @@ npm run dist     # установщик NSIS + portable в папку release/
 npm run dev
 ```
 
+Проверки перед коммитом:
+
+```bash
+npm run typecheck   # TypeScript (main + renderer)
+npm test            # unit-тесты парсеров схем достижений и runtime-сейвов
+npm run build       # production-сборка
+```
+
 ## Как это работает
 
 - **Эмулятор достижений** — [gbe_fork](https://github.com/Detanup01/gbe_fork) (GPL-3.0), скачивается с GitHub-релизов при настройке игры, оригинальная `steam_api.dll` сохраняется как `.valve.bak`.
 - **Сохранения** — [ludusavi](https://github.com/mtkennerly/ludusavi) (MIT), поставляется в комплекте (`resources/binaries/ludusavi.exe`), конфиг лаунчера изолирован в `%APPDATA%\vavilon\ludusavi-config`.
 - **Схема достижений** — парсинг публичных страниц `steamcommunity.com` (ключ Steam API не нужен).
 
-Данные лаунчера: `%APPDATA%\vavilon\` (библиотека `library.json`, настройки `settings.json`, кэш обложек и иконок).
+Данные лаунчера: `%APPDATA%\vavilon\` (библиотека `library.json`, настройки `settings.json`, кэш обложек и иконок, ежедневные копии библиотеки в `backups/`).
 
 ## Настройка достижений (v0.3)
 

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game } from '../../../shared/types'
 import { mediaUrl } from '../lib/media'
+import { useFeedback } from '../lib/feedback'
+import { errorText } from '../lib/errors'
 
 /*
  * Emulator dialog, modelled after Achievement Watcher Next:
@@ -66,10 +68,10 @@ export function AchievementsDialog({
   onClose: () => void
 }): React.JSX.Element {
   const [setupBusy, setSetupBusy] = useState(false)
-  const [setupError, setSetupError] = useState('')
   const [diag, setDiag] = useState<DiagReport | null>(null)
   const achievements = game.achievements ?? []
   const unlocked = achievements.filter((a) => a.unlockedAt).length
+  const { toast, show, confirm } = useFeedback()
 
   const refreshDiag = (): void => {
     void window.api
@@ -88,13 +90,13 @@ export function AchievementsDialog({
     describe: (report: unknown) => string
   ): Promise<void> => {
     setSetupBusy(true)
-    setSetupError('')
     try {
-      alert(await describe(await promise))
+      const report = await promise
+      await show({ title: 'Готово', message: describe(report), tone: 'success' })
       refreshDiag()
       onClose()
     } catch (e) {
-      setSetupError(`Ошибка: ${String(e).replace('Error: ', '')}`)
+      await show({ title: 'Ошибка', message: errorText(e), tone: 'error' })
     } finally {
       setSetupBusy(false)
     }
@@ -118,16 +120,19 @@ export function AchievementsDialog({
     })
 
   /** Repair: DLL replacement + schema. Explicitly confirmed. */
-  const runInstall = (): Promise<void> => {
-    const ok = confirm(
-      'Установить Steam-эмулятор (GBE) в папку игры?\n\n' +
-        '— оригинальная steam_api.dll будет сохранена как .valve.bak\n' +
+  const runInstall = async (): Promise<void> => {
+    const ok = await confirm({
+      title: 'Установить Steam-эмулятор?',
+      message:
+        'В папку игры будет установлен эмулятор GBE.\n\n' +
+        '— оригинальная steam_api.dll сохранится как .valve.bak\n' +
         '— схема достижений и steam_appid.txt будут записаны\n\n' +
         'Антивирус может отреагировать на эмуляторную DLL — это ложное срабатывание. ' +
-        'Вместо скачивания можно использовать свой DLL (кнопка «📁 Свой DLL…»).'
-    )
-    if (!ok) return Promise.resolve()
-    return finishWith(window.api.installEmu(game.id), (raw) => {
+        'Вместо скачивания можно использовать свой DLL (кнопка «📁 Свой DLL…»).',
+      confirmLabel: 'Установить'
+    })
+    if (!ok) return
+    await finishWith(window.api.installEmu(game.id), (raw) => {
       const report = raw as SetupReport
       const schema = report.schema
       return (
@@ -150,30 +155,34 @@ export function AchievementsDialog({
 
   /** Import a user-provided emulator DLL instead of the downloaded build. */
   const runCustomDll = async (): Promise<void> => {
-    setSetupError('')
     try {
       const r = await window.api.pickCustomDll()
       if (!r) return
-      alert(
-        `DLL импортирован: ${r.name} (${r.arch === 64 ? 'x64' : 'x86'}).\n\n` +
-          `Теперь нажмите «🛠 Установить эмулятор» — будет использован ваш файл вместо скачиваемого.`
-      )
+      await show({
+        title: 'DLL импортирован',
+        message:
+          `${r.name} (${r.arch === 64 ? 'x64' : 'x86'}).\n\n` +
+          'Теперь нажмите «🛠 Установить эмулятор» — будет использован ваш файл вместо скачиваемого.',
+        tone: 'success'
+      })
       refreshDiag()
     } catch (e) {
-      setSetupError(`Ошибка: ${String(e).replace('Error: ', '')}`)
+      await show({ title: 'Ошибка импорта DLL', message: errorText(e), tone: 'error' })
     }
   }
 
   const runRestore = async (): Promise<void> => {
-    const ok = confirm(
-      'Откатить Steam-эмуляцию для этой игры?\n\n' +
+    const ok = await confirm({
+      title: 'Откатить Steam-эмуляцию?',
+      message:
         '— оригинальная steam_api.dll будет восстановлена из .valve.bak (или удалён установленный эмулятор)\n' +
         '— схема достижений и steam_appid.txt будут удалены\n\n' +
-        'История достижений в библиотеке сохранится.'
-    )
+        'История достижений в библиотеке сохранится.',
+      confirmLabel: 'Откатить',
+      danger: true
+    })
     if (!ok) return
     setSetupBusy(true)
-    setSetupError('')
     try {
       const report = (await window.api.restoreEmu(game.id)) as RestoreReport
       const lines: string[] = []
@@ -181,12 +190,62 @@ export function AchievementsDialog({
       if (report.removed.length) lines.push(`Удалено:\n${report.removed.join('\n')}`)
       if (report.warnings.length) lines.push(report.warnings.join('\n'))
       if (lines.length === 0) lines.push('Файлы эмуляции не найдены — откатывать нечего.')
-      alert(`Откат выполнен.\n\n${lines.join('\n\n')}`)
+      await show({ title: 'Откат выполнен', message: lines.join('\n\n'), tone: 'success' })
       refreshDiag()
     } catch (e) {
-      setSetupError(`Ошибка отката: ${String(e).replace('Error: ', '')}`)
+      await show({ title: 'Ошибка отката', message: errorText(e), tone: 'error' })
     } finally {
       setSetupBusy(false)
+    }
+  }
+
+  const runSync = async (): Promise<void> => {
+    try {
+      const changed = await window.api.syncAchievements()
+      toast(changed ? 'Найдены новые достижения' : 'Достижения уже актуальны', changed ? 'success' : 'info')
+      refreshDiag()
+    } catch (e) {
+      toast(`Ошибка синхронизации: ${errorText(e)}`, 'error')
+    }
+  }
+
+  const runExportUnlocks = async (): Promise<void> => {
+    try {
+      const r = await window.api.exportUnlocks(game.id)
+      await show({
+        title: 'Прогресс загружен в эмулятор',
+        message: `Экспортировано: ${r.exported}\n\n${r.files.join('\n')}`,
+        tone: 'success'
+      })
+    } catch (e) {
+      await show({ title: 'Ошибка экспорта', message: errorText(e), tone: 'error' })
+    }
+  }
+
+  const runReset = async (): Promise<void> => {
+    const ok = await confirm({
+      title: 'Сбросить достижения?',
+      message:
+        `— счётчик станет 0/${achievements.length}\n` +
+        '— runtime-файлы эмулятора (GSE Saves / Goldberg) будут удалены\n' +
+        '— игра начнёт считать достижения заново\n\n' +
+        'Отменить это нельзя.',
+      confirmLabel: 'Сбросить',
+      danger: true
+    })
+    if (!ok) return
+    try {
+      const r = await window.api.resetAchievements(game.id)
+      await show({
+        title: 'Достижения сброшены',
+        message:
+          `Сброшено: ${r.cleared}\n` +
+          (r.files.length ? `\nУдалены файлы:\n${r.files.join('\n')}` : ''),
+        tone: 'success'
+      })
+      onClose()
+    } catch (e) {
+      await show({ title: 'Ошибка сброса', message: errorText(e), tone: 'error' })
     }
   }
 
@@ -254,7 +313,6 @@ export function AchievementsDialog({
             >
               📁 Свой DLL…
             </button>
-            {setupError && <div className="setup-error">{setupError}</div>}
           </div>
         ) : (
           <div className="ach-list">
@@ -304,7 +362,7 @@ export function AchievementsDialog({
         )}
 
         <div className="dialog-actions">
-          <button className="btn" onClick={() => void window.api.syncAchievements()}>
+          <button className="btn" onClick={() => void runSync()}>
             Обновить из файлов
           </button>
           <button
@@ -317,43 +375,14 @@ export function AchievementsDialog({
           <button
             className="btn"
             title="Записать достижения из библиотеки лаунчера в файлы эмулятора — игра снова увидит весь прогресс (полезно после переустановки игры)"
-            onClick={() => {
-              void window.api
-                .exportUnlocks(game.id)
-                .then((r) =>
-                  alert(
-                    `Прогресс загружен в эмулятор: ${r.exported} достижение(й).\n\n${r.files.join('\n')}`
-                  )
-                )
-                .catch((e) => alert(`Ошибка: ${String(e).replace('Error: ', '')}`))
-            }}
+            onClick={() => void runExportUnlocks()}
           >
             ⬆ Загрузить прогресс в эмулятор
           </button>
           <button
             className="btn"
             title="Сбросить счётчик: убрать разблокировки из библиотеки и удалить runtime-файлы эмулятора (аналог Reset в AW Next)"
-            onClick={() => {
-              const ok = confirm(
-                'Сбросить историю достижений для этой игры?\n\n' +
-                  '— счётчик станет 0/' +
-                  achievements.length +
-                  '\n' +
-                  '— runtime-файлы эмулятора (GSE Saves / Goldberg) будут удалены\n' +
-                  '— игра начнёт считать достижения заново\n\n' +
-                  'Отменить это нельзя.'
-              )
-              if (!ok) return
-              void window.api
-                .resetAchievements(game.id)
-                .then((r) => {
-                  alert(
-                    `Сброшено: ${r.cleared} разблокировок.\n${r.files.length ? '\nУдалены файлы:\n' + r.files.join('\n') : ''}`
-                  )
-                  onClose()
-                })
-                .catch((e) => alert(`Ошибка: ${String(e).replace('Error: ', '')}`))
-            }}
+            onClick={() => void runReset()}
           >
             🧹 Сбросить достижения
           </button>
