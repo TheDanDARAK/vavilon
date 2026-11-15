@@ -23,7 +23,7 @@ describe('mergeGames', () => {
       game({
         name: 'Imported',
         exePath: 'D:\\Imported\\game.exe',
-        workDir: undefined,
+        workDir: 'D:\\Imported',
         metadata
       })
     ])
