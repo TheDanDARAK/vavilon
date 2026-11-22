@@ -222,6 +222,41 @@ export interface UpdateInfo {
   error?: string
 }
 
+/**
+ * Lifecycle of the over-the-air updater, mirrored into the renderer so the
+ * settings dialog can render progress and an install button.
+ */
+export type UpdaterPhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'not-available'
+  | 'error'
+
+export interface UpdaterState {
+  phase: UpdaterPhase
+  /** Running launcher version */
+  current: string
+  /** Version offered by the update feed */
+  latest?: string
+  /** Release notes, when the feed provides them */
+  notes?: string
+  /** 0..100 while downloading */
+  percent?: number
+  transferred?: number
+  total?: number
+  bytesPerSecond?: number
+  /**
+   * true when this build cannot self-update (portable/unpacked) — the update
+   * is fetched from GitHub Releases and the installer is launched by hand.
+   */
+  portable?: boolean
+  url?: string
+  error?: string
+}
+
 /** General behaviour of the launcher (tray, autostart) */
 export interface GeneralSettings {
   /** Start the launcher when Windows starts */
@@ -230,6 +265,8 @@ export interface GeneralSettings {
   closeToTray: boolean
   /** Ask for confirmation before removing a game from the library */
   confirmDelete: boolean
+  /** Check GitHub Releases for a new version on startup */
+  autoUpdateCheck: boolean
 }
 
 /** Achievement watcher behaviour */

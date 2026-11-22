@@ -34,7 +34,10 @@ interface SetupReport {
 interface SchemaReport {
   schema: SchemaResult | null
   cover: boolean
+  coverSource?: string
   appidWritten: boolean
+  schemaError?: string
+  warnings?: string[]
 }
 
 interface DiagReport {
@@ -113,8 +116,11 @@ export function AchievementsDialog({
           ? `схема: ${schema.total} достижений, иконок ${schema.withIcons}` +
             `${schema.localized ? ', русские названия' : ''}` +
             `${schema.rarity ? ', редкость' : ''}\n`
-          : '') +
-        `${r.cover ? 'Обложка загружена с Steam CDN\n' : ''}` +
+          : r.schemaError
+            ? `схема: недоступна (${r.schemaError})\n`
+            : '') +
+        `${r.cover ? `Обложка загружена (${r.coverSource ?? 'Steam CDN'})\n` : 'Обложка не найдена\n'}` +
+        (r.warnings?.length ? `\n${r.warnings.join('\n')}\n` : '') +
         `\nФайлы игры (DLL) не изменялись.`
       )
     })
@@ -128,6 +134,7 @@ export function AchievementsDialog({
         '— оригинальная steam_api.dll сохранится как .valve.bak\n' +
         '— схема достижений и steam_appid.txt будут записаны\n\n' +
         'Антивирус может отреагировать на эмуляторную DLL — это ложное срабатывание. ' +
+        'Добавьте папку игры в исключения кнопкой «🛡 Исключение в Защитник». ' +
         'Вместо скачивания можно использовать свой DLL (кнопка «📁 Свой DLL…»).',
       confirmLabel: 'Установить'
     })
@@ -246,6 +253,22 @@ export function AchievementsDialog({
       onClose()
     } catch (e) {
       await show({ title: 'Ошибка сброса', message: errorText(e), tone: 'error' })
+    }
+  }
+
+  /** Adds the game folder + cache to Defender exclusions (the AV false-positive fix). */
+  const runAddExclusion = async (): Promise<void> => {
+    try {
+      const result = await window.api.addEmuExclusion(game.id)
+      await show({
+        title: result.ok ? 'Исключение добавлено' : 'Не удалось добавить исключение',
+        message:
+          result.message +
+          (result.paths.length ? `\n\n${result.paths.join('\n')}` : ''),
+        tone: result.ok ? 'success' : 'error'
+      })
+    } catch (e) {
+      await show({ title: 'Ошибка', message: errorText(e), tone: 'error' })
     }
   }
 
@@ -405,8 +428,16 @@ export function AchievementsDialog({
           <button
             className="btn"
             disabled={setupBusy}
+            onClick={() => void runAddExclusion()}
+            title="Добавить папку игры и кэш лаунчера в исключения Защитника Windows — убирает ложное срабатывание на эмулятор"
+          >
+            🛡 Исключение в Защитник
+          </button>
+          <button
+            className="btn"
+            disabled={setupBusy}
             onClick={() => void runSchema()}
-            title="Схема, иконки, редкость и обложка с Steam CDN — файлы игры не меняются"
+            title="Схема, иконки, редкость и обложка (Steam / SteamGridDB / RAWG) — файлы игры не меняются"
           >
             {setupBusy ? '…' : '⚙ Схема и обложка'}
           </button>

@@ -2,6 +2,15 @@ appId: com.thedandarak.vavilon
 productName: Vavilon
 copyright: Copyright © 2026 TheDanDARAK
 
+# GitHub Releases feed for electron-updater ("обновления по воздуху").
+# The first provider is written into resources/app-update.yml inside the build
+# and is what the launcher polls. Publish with: GH_TOKEN=... npm run dist -- --publish always
+publish:
+  provider: github
+  owner: TheDanDARAK
+  repo: vavilon
+  releaseType: release
+
 directories:
   buildResources: resources
   output: release

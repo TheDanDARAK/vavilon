@@ -5,10 +5,15 @@ import { normalizeSettings, SETTINGS_DEFAULTS } from '../src/main/saves/settings
 describe('normalizeSettings', () => {
   it('keeps valid settings intact', () => {
     const input: LauncherSettings = {
-      general: { startWithWindows: true, closeToTray: true, confirmDelete: false },
+      general: {
+        startWithWindows: true,
+        closeToTray: true,
+        confirmDelete: false,
+        autoUpdateCheck: true
+      },
       achievements: { notifications: false, toasts: false, pollIntervalMs: 10000 },
       saves: { enabled: true, ludusaviPath: 'C:\\tools\\ludusavi.exe', backupPath: 'D:\\saves' },
-      store: { rawgApiKey: 'abc123' }
+      store: { rawgApiKey: 'abc123', steamGridDbApiKey: 'sgdb' }
     }
     expect(normalizeSettings(input)).toEqual(input)
   })

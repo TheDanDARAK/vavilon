@@ -369,6 +369,13 @@ export function registerStoreIpc(ipc: typeof ipcMain): void {
     return next.store.rawgApiKey
   })
 
+  /** Optional SteamGridDB key (empty → the launcher uses its bundled public key). */
+  ipc.handle('store:getSteamGridDbKey', () => loadSettings().store.steamGridDbApiKey)
+  ipc.handle('store:setSteamGridDbKey', (_event, key: string) => {
+    const next = saveSettingsPatch({ store: { steamGridDbApiKey: key.trim() } })
+    return next.store.steamGridDbApiKey
+  })
+
   ipc.handle('store:newReleases', (_event, genre?: string, page?: number) =>
     storeNewReleases(genre || undefined, page ?? 1)
   )

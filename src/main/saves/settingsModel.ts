@@ -11,6 +11,8 @@ export interface LauncherSettings {
     closeToTray: boolean
     /** Ask for confirmation before removing a game from the library */
     confirmDelete: boolean
+    /** Check GitHub Releases for a new version on startup */
+    autoUpdateCheck: boolean
   }
   achievements: {
     /** Show OS notifications when the window is not focused */
@@ -31,6 +33,12 @@ export interface LauncherSettings {
   store: {
     /** Free RAWG API key (rawg.io/apidocs) that powers the storefront */
     rawgApiKey: string
+    /**
+     * Optional SteamGridDB API key. When empty the launcher uses a bundled
+     * public fallback key (like Achievement Watcher Next), so covers work
+     * out of the box.
+     */
+    steamGridDbApiKey: string
   }
 }
 
@@ -38,7 +46,8 @@ export const SETTINGS_DEFAULTS: LauncherSettings = {
   general: {
     startWithWindows: false,
     closeToTray: false,
-    confirmDelete: true
+    confirmDelete: true,
+    autoUpdateCheck: true
   },
   achievements: {
     notifications: true,
@@ -51,7 +60,8 @@ export const SETTINGS_DEFAULTS: LauncherSettings = {
     backupPath: ''
   },
   store: {
-    rawgApiKey: ''
+    rawgApiKey: '',
+    steamGridDbApiKey: ''
   }
 }
 
@@ -83,7 +93,11 @@ export function normalizeSettings(input: LauncherSettings): LauncherSettings {
         SETTINGS_DEFAULTS.general.startWithWindows
       ),
       closeToTray: asBool(input.general?.closeToTray, SETTINGS_DEFAULTS.general.closeToTray),
-      confirmDelete: asBool(input.general?.confirmDelete, SETTINGS_DEFAULTS.general.confirmDelete)
+      confirmDelete: asBool(input.general?.confirmDelete, SETTINGS_DEFAULTS.general.confirmDelete),
+      autoUpdateCheck: asBool(
+        input.general?.autoUpdateCheck,
+        SETTINGS_DEFAULTS.general.autoUpdateCheck
+      )
     },
     achievements: {
       notifications: asBool(
@@ -99,7 +113,8 @@ export function normalizeSettings(input: LauncherSettings): LauncherSettings {
       backupPath: asText(input.saves?.backupPath)
     },
     store: {
-      rawgApiKey: asText(input.store?.rawgApiKey)
+      rawgApiKey: asText(input.store?.rawgApiKey),
+      steamGridDbApiKey: asText(input.store?.steamGridDbApiKey)
     }
   }
 }

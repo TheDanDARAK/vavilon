@@ -2138,3 +2138,218 @@ body::after {
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* ============================================================
+   Over-the-air update banner
+   ============================================================ */
+
+.update-banner {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 360;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 44px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(22, 26, 38, 0.96);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--glass-border-strong);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  animation: toast-in 0.28s ease;
+}
+
+.update-banner.phase-downloaded {
+  border-left-color: var(--accent-3);
+}
+
+.update-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.update-bar {
+  flex: 1;
+  min-width: 120px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.update-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.2s ease;
+}
+
+.update-close {
+  flex: none;
+}
+
+.updater-state {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--text-dim);
+}
+
+.updater-state .dialog-actions {
+  margin: 0;
+}
+
+/* ============================================================
+   Big Picture (gamepad / streaming) mode
+   ============================================================ */
+
+.bigpicture {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 34px 22px;
+  background:
+    radial-gradient(1200px 700px at 15% -10%, rgba(79, 140, 255, 0.18), transparent 60%),
+    radial-gradient(1000px 700px at 95% 110%, rgba(124, 92, 255, 0.16), transparent 60%),
+    var(--bg);
+}
+
+.bp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.bp-logo {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--text);
+}
+
+.bp-logo span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 6px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.bp-hint {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.bp-exit {
+  padding: 8px 16px;
+}
+
+.bp-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 20px;
+  padding: 6px;
+}
+
+.bp-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius);
+  transition: transform 0.14s ease;
+}
+
+.bp-cover {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 3px solid transparent;
+  background: var(--bg-card);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.bp-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bp-cover-fallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-size: 40px;
+  font-weight: 800;
+  color: var(--text-dim);
+  background: linear-gradient(160deg, rgba(79, 140, 255, 0.25), rgba(124, 92, 255, 0.18));
+}
+
+.bp-tile.selected .bp-cover {
+  border-color: var(--accent);
+  box-shadow: var(--glow), 0 14px 40px rgba(0, 0, 0, 0.5);
+}
+
+.bp-tile.selected {
+  transform: scale(1.04);
+}
+
+.bp-tile:focus-visible .bp-cover {
+  border-color: var(--accent-3);
+}
+
+.bp-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-ach {
+  font-size: 12px;
+  color: var(--gold);
+}
+
+.bp-running {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(56, 212, 200, 0.92);
+  color: #05201d;
+}
+
+.bp-empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--text-dim);
+}

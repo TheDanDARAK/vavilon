@@ -121,8 +121,9 @@ export function registerRunnerIpc(ipc: typeof ipcMain, getWindow: () => BrowserW
   ipc.handle('games:launch', async (event, id: string) => {
     await launchGame(id, getWindow)
     const win = BrowserWindow.fromWebContents(event.sender)
-    // Minimize so the game takes over the screen
-    win?.minimize()
+    // Minimize so the game takes over the screen — but NOT in Big Picture:
+    // there the fullscreen launcher is what the user is streaming.
+    if (win && !win.isFullScreen()) win.minimize()
     return true
   })
 

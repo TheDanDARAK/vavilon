@@ -84,6 +84,25 @@ export function EditGameDialog({
     }
   }
 
+  /** Resolves a cover from the whole chain: Steam → SteamGridDB → RAWG */
+  const autoCover = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const result = await window.api.autoCover(game.id, true)
+      if (result.ok && result.path) {
+        setCoverPath(result.path)
+        setFetchedMeta((prev) => (prev ? { ...prev, coverUrl: undefined } : prev))
+        toast(`Обложка загружена (${result.source ?? 'онлайн'})`, 'success')
+      } else {
+        toast(result.message ?? 'Обложка не найдена', 'warning')
+      }
+    } catch (e) {
+      toast(`Ошибка: ${errorText(e)}`, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const save = async (): Promise<void> => {
     setBusy(true)
     const appIdNum = Number(appId)
@@ -130,7 +149,13 @@ export function EditGameDialog({
               ⟳ Метаданные из Steam
             </button>
             {fetchedMeta && <small>✓ Найдено: {fetchedMeta.shortDescription?.slice(0, 90) ?? 'метаданные загружены'}…</small>}
-            <small>Обложку можно взять с Steam CDN кнопкой «⚙ Схема и обложка» в окне достижений.</small>
+            <button className="btn" disabled={busy} onClick={() => void autoCover()}>
+              ⬇ Обложка из сети
+            </button>
+            <small>
+              «Обложка из сети» ищет картинку в Steam, SteamGridDB и RAWG — подходит и для старых
+              игр без достижений.
+            </small>
           </div>
         </div>
         <button className="btn" onClick={() => void pickExe()}>

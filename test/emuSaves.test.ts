@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readRuntimeAchievements } from '../src/main/achievements/emuSaves'
+import { readRuntimeAchievements, saveFilesForAppId } from '../src/main/achievements/emuSaves'
 
 let dir: string | null = null
 
@@ -78,5 +78,42 @@ describe('readRuntimeAchievements', () => {
   it('returns null for invalid JSON instead of throwing', () => {
     const file = writeSave('achievements.json', '{ not really json')
     expect(readRuntimeAchievements(file)).toBeNull()
+  })
+
+  it('parses Razor1911 "achievement" lines (name flag timestamp)', () => {
+    const file = writeSave(
+      'achievement',
+      ['ACH_ONE 1 1700000000', 'ACH_ZERO 0 0', 'ACH_FLAG 1'].join('\n')
+    )
+
+    expect(readRuntimeAchievements(file)).toEqual({
+      ach_one: { earned: true, earnedTime: 1700000000 },
+      ach_zero: { earned: false, earnedTime: 0 },
+      ach_flag: { earned: true, earnedTime: 0 }
+    })
+  })
+})
+
+describe('saveFilesForAppId', () => {
+  it('finds runtime saves across multiple scene-emulator roots', () => {
+    const appData = mkdtempSync(join(tmpdir(), 'vavilon-appdata-'))
+    const previous = process.env.APPDATA
+    process.env.APPDATA = appData
+    try {
+      const codexDir = join(appData, 'Steam', 'CODEX', '12345')
+      mkdirSync(codexDir, { recursive: true })
+      writeFileSync(join(codexDir, 'achievements.ini'), '[State]\nACH=1', 'utf-8')
+
+      const gseDir = join(appData, 'GSE Saves', '12345')
+      mkdirSync(gseDir, { recursive: true })
+      writeFileSync(join(gseDir, 'achievements.json'), '{}', 'utf-8')
+
+      const files = saveFilesForAppId(12345)
+      expect(files).toContain(join(codexDir, 'achievements.ini'))
+      expect(files).toContain(join(gseDir, 'achievements.json'))
+    } finally {
+      process.env.APPDATA = previous
+      rmSync(appData, { recursive: true, force: true })
+    }
   })
 })

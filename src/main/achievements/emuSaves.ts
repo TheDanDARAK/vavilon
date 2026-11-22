@@ -1,16 +1,23 @@
 import { readFileSync, existsSync } from 'fs'
-import { join } from 'path'
+import { join, basename } from 'path'
 
 /**
  * Decoders for Steam-emulator achievement save files.
  *
- * Runtime save (written by the emulator while the game runs):
- *   %APPDATA%\GSE Saves\<appid>\achievements.json   (GBE Fork / new Goldberg)
- *   %APPDATA%\Goldberg SteamEmu Saves\<appid>\achievements.json (classic Goldberg)
- *   <same roots>\achievements.ini (some forks write INI instead)
+ * Vavilon originally only read %APPDATA%\GSE Saves and
+ * %APPDATA%\Goldberg SteamEmu Saves. Real games often use scene emulators that
+ * write elsewhere (CODEX/RUNE, EMPRESS, RLD!, OnlineFix, Razor1911, CreamAPI,
+ * ...), which is why achievements were sometimes "not seen". The table below
+ * mirrors the save-root table of Achievement Watcher Next, plus a small set of
+ * per-format parsers.
  *
- * Runtime JSON shape (from gbe_fork sources):
- *   { "ACH_API_NAME": { "earned": true, "earned_time": 1699..., "progress": 1, "max_progress": 10 } }
+ * Runtime save shapes:
+ *   GBE/Goldberg  achievements.json   { "ACH_API": { "earned": true, "earned_time": 1699..., ... } }
+ *   CODEX/RUNE    achievements.ini    [State]\nACH_API=1
+ *   OnlineFix     achievements.ini    same INI shape
+ *   EMPRESS       achievements.json   same JSON shape
+ *   Razor1911     achievement         "ACH_API 1 1699...\n" per line
+ *   CreamAPI      CreamAPI.Achievements.cfg   INI shape under <appid>\stats
  */
 
 export interface RuntimeAchEntry {
@@ -21,23 +28,69 @@ export interface RuntimeAchEntry {
   maxProgress?: number
 }
 
-const ACH_FILE_JSON = 'achievements.json'
-const ACH_FILE_INI = 'achievements.ini'
+interface RootSpec {
+  /** Windows environment variable the root hangs off */
+  env: 'APPDATA' | 'LOCALAPPDATA' | 'PROGRAMDATA' | 'PUBLIC'
+  /** Path relative to the env root; <appid> is substituted */
+  rel: string
+  /** Candidate file names inside the <appid> folder */
+  files: string[]
+}
 
+/**
+ * All known emulator save roots. Read-only: the launcher never writes here
+ * (exports and resets only touch `saveRoots()` below, i.e. GSE/Goldberg).
+ */
+const RUNTIME_ROOTS: RootSpec[] = [
+  { env: 'APPDATA', rel: 'GSE Saves/<appid>', files: ['achievements.json', 'achievements.ini'] },
+  {
+    env: 'APPDATA',
+    rel: 'Goldberg SteamEmu Saves/<appid>',
+    files: ['achievements.json', 'achievements.ini']
+  },
+  { env: 'APPDATA', rel: 'Steam/CODEX/<appid>', files: ['achievements.ini'] },
+  { env: 'APPDATA', rel: 'Steam/RUNE/<appid>', files: ['achievements.ini'] },
+  { env: 'APPDATA', rel: 'Steam/RLD!/<appid>', files: ['achiev.ini', 'Achievements.ini'] },
+  { env: 'APPDATA', rel: 'EMPRESS/remote/<appid>', files: ['achievements.json'] },
+  { env: 'APPDATA', rel: 'EMPRESS/<appid>', files: ['achievements.json'] },
+  { env: 'APPDATA', rel: '.1911/<appid>', files: ['achievement'] },
+  { env: 'APPDATA', rel: 'CreamAPI/<appid>/stats', files: ['CreamAPI.Achievements.cfg'] },
+  { env: 'PUBLIC', rel: 'Documents/OnlineFix/<appid>', files: ['achievements.ini'] },
+  { env: 'PUBLIC', rel: 'Documents/Steam/CODEX/<appid>', files: ['achievements.ini'] },
+  { env: 'PUBLIC', rel: 'Documents/Steam/RUNE/<appid>', files: ['achievements.ini'] },
+  { env: 'PUBLIC', rel: 'Documents/Steam/CPY/<appid>', files: ['achievements.ini'] },
+  { env: 'PUBLIC', rel: 'Documents/Steam/RLD!/<appid>', files: ['achiev.ini', 'Achievements.ini'] },
+  { env: 'PUBLIC', rel: 'Documents/EMPRESS/remote/<appid>', files: ['achievements.json'] },
+  { env: 'PROGRAMDATA', rel: 'Steam/<appid>/stats', files: ['achievements.ini'] }
+]
+
+function envRoot(env: RootSpec['env']): string | null {
+  const value = process.env[env]
+  return value && value.trim() ? value : null
+}
+
+/**
+ * Roots the launcher is allowed to WRITE to (export/reset). Kept intentionally
+ * narrow: only the two modern Goldberg/GBE locations are managed.
+ */
 export function saveRoots(): string[] {
   const appData =
     process.env.APPDATA ?? join(process.env.USERPROFILE ?? '', 'AppData', 'Roaming')
   return [join(appData, 'GSE Saves'), join(appData, 'Goldberg SteamEmu Saves')]
 }
 
-/** All existing achievement save files for one Steam appid. */
+/** Every existing runtime achievement file for one Steam appid (read-only). */
 export function saveFilesForAppId(appId: number): string[] {
   const out: string[] = []
-  for (const root of saveRoots()) {
-    const json = join(root, String(appId), ACH_FILE_JSON)
-    const ini = join(root, String(appId), ACH_FILE_INI)
-    if (existsSync(json)) out.push(json)
-    if (existsSync(ini)) out.push(ini)
+  const id = String(appId)
+  for (const root of RUNTIME_ROOTS) {
+    const base = envRoot(root.env)
+    if (!base) continue
+    const dir = join(base, ...root.rel.split('/').map((part) => (part === '<appid>' ? id : part)))
+    for (const file of root.files) {
+      const full = join(dir, file)
+      if (existsSync(full)) out.push(full)
+    }
   }
   return out
 }
@@ -80,7 +133,8 @@ function parseJsonRuntime(raw: string): Record<string, RuntimeAchEntry> {
 /**
  * Lenient INI parser: sections ignored, `KEY=value` lines only.
  * A non-zero numeric value (or any non-empty value) counts as earned;
- * a value > 1 is treated as an unlock timestamp.
+ * a value > 1 is treated as an unlock timestamp. Covers CODEX/RUNE,
+ * OnlineFix, CreamAPI and RLD!'s `achiev.ini`.
  */
 function parseIniRuntime(raw: string): Record<string, RuntimeAchEntry> {
   const result: Record<string, RuntimeAchEntry> = {}
@@ -102,13 +156,49 @@ function parseIniRuntime(raw: string): Record<string, RuntimeAchEntry> {
   return result
 }
 
+/**
+ * Razor1911 `%APPDATA%\.1911\<appid>\achievement`: one entry per line,
+ * `ACH_API <0|1> <unix seconds>` (also seen as `ACH_API <0|1>`).
+ */
+function parseRazorRuntime(raw: string): Record<string, RuntimeAchEntry> {
+  const result: Record<string, RuntimeAchEntry> = {}
+  for (const line of raw.split(/\r?\n/)) {
+    const parts = line.trim().split(/\s+/)
+    if (parts.length < 2) continue
+    const [name, flag, time] = parts
+    if (!/^[A-Za-z0-9_]+$/.test(name)) continue
+    const earned = flag !== '0' && flag.toLowerCase() !== 'false'
+    const seconds = toNumber(time)
+    result[name.toLowerCase()] = {
+      earned,
+      earnedTime: earned && seconds && seconds > 1 ? seconds : 0
+    }
+  }
+  return result
+}
+
+type ParserKind = 'json' | 'ini' | 'razor'
+
+/** Picks a parser from the file name (extension alone is not enough). */
+function parserFor(file: string): ParserKind {
+  const base = basename(file).toLowerCase()
+  if (base === 'achievement') return 'razor'
+  if (base.endsWith('.json')) return 'json'
+  return 'ini'
+}
+
 /** Reads one runtime save file. Returns null if unreadable/invalid. */
 export function readRuntimeAchievements(file: string): Record<string, RuntimeAchEntry> | null {
   try {
     const raw = readFileSync(file, 'utf-8')
-    return file.toLowerCase().endsWith('.ini')
-      ? parseIniRuntime(raw)
-      : parseJsonRuntime(raw)
+    switch (parserFor(file)) {
+      case 'json':
+        return parseJsonRuntime(raw)
+      case 'razor':
+        return parseRazorRuntime(raw)
+      default:
+        return parseIniRuntime(raw)
+    }
   } catch {
     return null
   }
@@ -126,7 +216,10 @@ export function readRuntimeAchievementsForAppId(
     if (!entries) continue
     for (const [key, entry] of Object.entries(entries)) {
       const prev = merged[key]
-      if (!prev || entry.earnedTime > prev.earnedTime) merged[key] = entry
+      // keep the later timestamp; a flag-only unlock (time 0) must still win
+      if (!prev || entry.earnedTime > prev.earnedTime || (entry.earned && !prev.earned)) {
+        merged[key] = entry
+      }
     }
   }
   return Object.keys(merged).length > 0 ? merged : null

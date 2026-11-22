@@ -8,6 +8,8 @@ import { getGames, updateGame } from '../library'
 import { installSchema, type SchemaInstallResult } from './steamSchema'
 import { syncNowSilently, invalidateSchemaCache } from './watcher'
 import { saveRoots, saveFilesForAppId, type RuntimeAchEntry } from './emuSaves'
+import { resolveAndCacheCover } from '../covers'
+import { addDefenderExclusion, emulatorExclusionPaths } from './defender'
 
 /**
  * One-click Steam emulation setup for a game:
@@ -454,32 +456,6 @@ export async function clearCustomDll(): Promise<boolean> {
   }
 }
 
-/** Downloads the vertical library capsule from the Steam CDN. */
-async function downloadCover(appId: number, dest: string): Promise<boolean> {
-  const urls = [
-    `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`,
-    `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`,
-    `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`
-  ]
-  for (const url of urls) {
-    try {
-      const res = await net.fetch(url, {
-        headers: { 'User-Agent': USER_AGENT },
-        signal: AbortSignal.timeout(20000)
-      })
-      const type = res.headers.get('content-type') ?? ''
-      if (res.ok && type.startsWith('image')) {
-        await mkdir(dirname(dest), { recursive: true })
-        await writeFile(dest, Buffer.from(await res.arrayBuffer()))
-        return true
-      }
-    } catch {
-      // try the next mirror
-    }
-  }
-  return false
-}
-
 /**
  * Writes steam_settings/steam_interfaces.txt the way Achievement Watcher Next
  * does: the Steamworks interface versions the game's ORIGINAL DLL was built
@@ -515,44 +491,69 @@ async function writeInterfacesFile(
  * Safe part of the setup: steam_appid.txt, achievement schema and cover.
  * Writes only configuration files — never touches any DLL in the game folder,
  * so nothing here can trip an antivirus.
+ *
+ * A missing achievement schema (old games without achievements) is NOT an
+ * error: the schema step is skipped, but the cover is still resolved through
+ * the full provider chain (Steam → SteamGridDB → RAWG), so old titles like
+ * LEGO Batman 2 get their artwork too.
  */
-export async function setupSchema(
-  gameId: string
-): Promise<{ schema: SchemaInstallResult | null; cover: boolean; appidWritten: boolean }> {
+export async function setupSchema(gameId: string): Promise<{
+  schema: SchemaInstallResult | null
+  cover: boolean
+  coverSource?: string
+  appidWritten: boolean
+  schemaError?: string
+  warnings: string[]
+}> {
   const game = getGames().find((g) => g.id === gameId)
   if (!game) throw new Error('Игра не найдена')
-  if (!game.appId) throw new Error('У игры не указан Steam AppID')
   const gameDir = game.workDir ?? dirname(game.exePath)
+  const warnings: string[] = []
 
-  // 1. steam_appid.txt — plain text files the emulator reads; only written when missing
+  // 1. steam_appid.txt — plain text files the emulator reads; only when we know the AppID
   let appidWritten = false
-  const settingsDir = join(gameDir, 'steam_settings')
-  await mkdir(settingsDir, { recursive: true })
-  const appidInSettings = join(settingsDir, 'steam_appid.txt')
-  if (!existsSync(appidInSettings)) {
-    await writeFile(appidInSettings, String(game.appId), 'utf-8')
-    appidWritten = true
-  }
-  const appidInRoot = join(gameDir, 'steam_appid.txt')
-  if (!existsSync(appidInRoot)) {
-    await writeFile(appidInRoot, String(game.appId), 'utf-8')
-    appidWritten = true
+  if (game.appId) {
+    const settingsDir = join(gameDir, 'steam_settings')
+    await mkdir(settingsDir, { recursive: true })
+    const appidInSettings = join(settingsDir, 'steam_appid.txt')
+    if (!existsSync(appidInSettings)) {
+      await writeFile(appidInSettings, String(game.appId), 'utf-8')
+      appidWritten = true
+    }
+    const appidInRoot = join(gameDir, 'steam_appid.txt')
+    if (!existsSync(appidInRoot)) {
+      await writeFile(appidInRoot, String(game.appId), 'utf-8')
+      appidWritten = true
+    }
   }
 
-  // 2. Schema
-  const schema = await installSchema(gameDir, game.appId)
-
-  // 3. Cover from the Steam CDN (portrait library capsule)
-  const coverPath = join(app.getPath('userData'), 'covers', `${gameId}.jpg`)
-  let cover = false
-  if (!existsSync(coverPath) || (await stat(coverPath).then((s) => s.size === 0).catch(() => true))) {
-    cover = await downloadCover(game.appId, coverPath)
+  // 2. Schema — requires an AppID; a failure (no achievements on Steam) is not fatal
+  let schema: SchemaInstallResult | null = null
+  let schemaError: string | undefined
+  if (game.appId) {
+    try {
+      schema = await installSchema(gameDir, game.appId)
+    } catch (e) {
+      schemaError = e instanceof Error ? e.message : String(e)
+      warnings.push(
+        'Схема достижений недоступна (у игры может не быть достижений в Steam) — обложка всё равно загружена'
+      )
+    }
   } else {
-    cover = true
+    schemaError = 'У игры не указан Steam AppID — схема достижений недоступна'
   }
-  if (cover) updateGame(gameId, { coverPath })
 
-  return { schema, cover, appidWritten }
+  // 3. Cover through the full provider chain (works with or without an AppID)
+  const coverResult = await resolveAndCacheCover(game, false)
+
+  return {
+    schema,
+    cover: coverResult.ok,
+    coverSource: coverResult.source,
+    appidWritten,
+    schemaError,
+    warnings
+  }
 }
 
 /**
@@ -994,5 +995,16 @@ export function registerGbeSetupIpc(): void {
 
   ipcMain.handle('gbe:resetAch', async (_event, gameId: string) => {
     return resetAchievements(gameId)
+  })
+
+  /**
+   * Adds the emulator cache and the game folder to Windows Defender exclusions.
+   * This is the honest fix for the Goldberg/GBE false positive (same approach
+   * as Achievement Watcher Next) — the elevation prompt is the user's consent.
+   */
+  ipcMain.handle('gbe:addExclusion', async (_event, gameId: string) => {
+    const game = getGames().find((g) => g.id === gameId)
+    const gameDir = game ? game.workDir ?? dirname(game.exePath) : undefined
+    return addDefenderExclusion(emulatorExclusionPaths(gameDir))
   })
 }

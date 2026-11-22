@@ -66,7 +66,11 @@ export function saveSettings(settings: LauncherSettings): void {
   renameSync(tmp, settingsPath())
 }
 
-export function saveSettingsPatch(patch: Partial<LauncherSettings>): LauncherSettings {
+export type SettingsPatch = {
+  [K in keyof LauncherSettings]?: Partial<LauncherSettings[K]>
+}
+
+export function saveSettingsPatch(patch: SettingsPatch): LauncherSettings {
   const current = loadSettings()
   const next: LauncherSettings = {
     general: { ...current.general, ...(patch.general ?? {}) },

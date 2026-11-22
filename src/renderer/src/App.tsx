@@ -6,6 +6,7 @@ import { UnlockToast } from './components/UnlockToast'
 import { SavesSection } from './components/SavesSection'
 import { GeneralSettingsSection } from './components/GeneralSettingsSection'
 import { StorePage } from './components/StorePage'
+import { UpdateBanner } from './components/UpdateBanner'
 import { useFeedback } from './lib/feedback'
 import { errorText } from './lib/errors'
 
@@ -256,6 +257,7 @@ export default function App(): React.JSX.Element {
           onDone={() => setUnlockToast(null)}
         />
       )}
+      <UpdateBanner />
     </div>
   )
 }

@@ -17,6 +17,8 @@ import { registerSavesIpc, registerGeneralIpc } from './saves/saveIpc'
 import { registerStoreIpc } from './store'
 import { registerTorrentsIpc } from './torrents'
 import { registerUpdatesIpc } from './updates'
+import { registerCoversIpc } from './covers'
+import { registerAutoUpdateIpc, startUpdater, stopUpdater } from './autoUpdate'
 import { applyAutostart } from './saves/saveSettings'
 import { createTray, shouldHideToTray, markQuitting } from './tray'
 
@@ -29,6 +31,13 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let mainWindow: BrowserWindow | null = null
+
+/**
+ * Big Picture / gamepad mode. Enabled with `--bigpicture` so it can be added as
+ * a separate application in Sunshine (remote play): the launcher starts
+ * fullscreen and is driven entirely by a gamepad.
+ */
+const BIG_PICTURE = process.argv.includes('--bigpicture') || process.argv.includes('--big-picture')
 
 /**
  * App data lives in %APPDATA%\vavilon. One-time migration from the old
@@ -73,8 +82,11 @@ function createWindow(hidden = false): void {
     backgroundColor: '#0f1115',
     autoHideMenuBar: true,
     title: 'Vavilon',
+    // Big Picture takes the whole screen so Sunshine streams a console-like UI
+    fullscreen: BIG_PICTURE,
+    fullscreenable: true,
     // shown on ready-to-show unless the app was started by the login item
-    show: !hidden,
+    show: !hidden || BIG_PICTURE,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -121,9 +133,14 @@ function createWindow(hidden = false): void {
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    if (BIG_PICTURE) url.searchParams.set('bigpicture', '1')
+    void mainWindow.loadURL(url.toString())
   } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(
+      join(__dirname, '../renderer/index.html'),
+      BIG_PICTURE ? { query: { bigpicture: '1' } } : undefined
+    )
   }
 }
 
@@ -157,9 +174,25 @@ if (app.requestSingleInstanceLock()) {
     registerStoreIpc(ipcMain)
     registerTorrentsIpc(ipcMain)
     registerUpdatesIpc()
+    registerCoversIpc()
+    registerAutoUpdateIpc()
 
     ipcMain.handle('app:openDataDir', async () => {
       await shell.openPath(app.getPath('userData'))
+      return true
+    })
+
+    /** Leaves Big Picture mode: drop fullscreen and reload the normal UI. */
+    ipcMain.handle('bigpicture:exit', () => {
+      const win = mainWindow
+      if (!win) return false
+      win.setFullScreen(false)
+      if (process.env.ELECTRON_RENDERER_URL) {
+        const url = new URL(process.env.ELECTRON_RENDERER_URL)
+        void win.loadURL(url.toString())
+      } else {
+        void win.loadFile(join(__dirname, '../renderer/index.html'))
+      }
       return true
     })
 
@@ -167,6 +200,7 @@ if (app.requestSingleInstanceLock()) {
     createTray()
     applyAutostart()
     startAchievementWatcher()
+    startUpdater()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -179,6 +213,7 @@ if (app.requestSingleInstanceLock()) {
 app.on('before-quit', () => {
   markQuitting()
   stopAchievementWatcher()
+  stopUpdater()
 })
 
 app.on('window-all-closed', () => {

@@ -16,6 +16,7 @@ import type {
   TorrentResultEnvelope,
   TorrentSearchPage,
   UpdateInfo,
+  UpdaterState,
   WishlistEntry
 } from '../shared/types'
 
@@ -34,6 +35,12 @@ const api = {
     ipcRenderer.invoke('games:pickCover', gameId),
   removeCover: (gameId: string): Promise<boolean> =>
     ipcRenderer.invoke('games:removeCover', gameId),
+  /** Resolve a cover through Steam → SteamGridDB → RAWG and cache it locally */
+  autoCover: (
+    gameId: string,
+    force?: boolean
+  ): Promise<{ ok: boolean; path?: string; source?: string; message?: string }> =>
+    ipcRenderer.invoke('covers:auto', gameId, force),
   /** Store metadata (Steam): everything goes by URL, nothing is saved to disk */
   searchSteam: (term: string): Promise<SteamSearchHit[]> =>
     ipcRenderer.invoke('metadata:search', term),
@@ -46,6 +53,10 @@ const api = {
   /** Storefront (RAWG): the API key plus catalogue requests */
   storeGetKey: (): Promise<string> => ipcRenderer.invoke('store:getKey'),
   storeSetKey: (key: string): Promise<string> => ipcRenderer.invoke('store:setKey', key),
+  /** Optional SteamGridDB key (empty → bundled public fallback key) */
+  storeGetSteamGridDbKey: (): Promise<string> => ipcRenderer.invoke('store:getSteamGridDbKey'),
+  storeSetSteamGridDbKey: (key: string): Promise<string> =>
+    ipcRenderer.invoke('store:setSteamGridDbKey', key),
   storeNewReleases: (genre?: string, page?: number): Promise<StoreResult<StoreList<StoreGame>>> =>
     ipcRenderer.invoke('store:newReleases', genre, page),
   storeRecommend: (): Promise<StoreResult<StoreRecommendation>> =>
@@ -92,6 +103,11 @@ const api = {
   pickCustomDll: (): Promise<{ name: string; arch: 32 | 64 } | null> =>
     ipcRenderer.invoke('gbe:pickCustomDll'),
   clearCustomDll: (): Promise<boolean> => ipcRenderer.invoke('gbe:clearCustomDll'),
+  /** Add the emulator cache + game folder to Windows Defender exclusions */
+  addEmuExclusion: (
+    gameId: string
+  ): Promise<{ ok: boolean; message: string; paths: string[] }> =>
+    ipcRenderer.invoke('gbe:addExclusion', gameId),
   getSavesSettings: (): Promise<SavesSettings> => ipcRenderer.invoke('saves:get'),
   setSavesSettings: (patch: Partial<SavesSettings>): Promise<SavesSettings> =>
     ipcRenderer.invoke('saves:set', patch),
@@ -118,6 +134,13 @@ const api = {
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('updates:version'),
   checkUpdates: (): Promise<UpdateInfo> => ipcRenderer.invoke('updates:check'),
   openReleasePage: (url: string): Promise<boolean> => ipcRenderer.invoke('updates:open', url),
+  /** Over-the-air updater (electron-updater + portable fallback) */
+  getUpdaterState: (): Promise<UpdaterState> => ipcRenderer.invoke('updater:state'),
+  checkUpdater: (): Promise<UpdaterState> => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: (): Promise<UpdaterState> => ipcRenderer.invoke('updater:download'),
+  installUpdate: (): Promise<boolean> => ipcRenderer.invoke('updater:install'),
+  /** Big Picture: leave fullscreen gamepad mode and reload the normal UI */
+  exitBigPicture: (): Promise<boolean> => ipcRenderer.invoke('bigpicture:exit'),
   openDataDir: (): Promise<boolean> => ipcRenderer.invoke('app:openDataDir'),
   onSaveStatus: (callback: (payload: SavesStatusPayload) => void): (() => void) => {
     const listener = (_e: unknown, payload: SavesStatusPayload): void => callback(payload)
@@ -141,6 +164,12 @@ const api = {
     const listener = (_e: unknown, id: string, running: boolean): void => callback(id, running)
     ipcRenderer.on('games:running', listener)
     return () => ipcRenderer.removeListener('games:running', listener)
+  },
+  /** Live over-the-air updater state (checking → downloading → downloaded) */
+  onUpdaterState: (callback: (state: UpdaterState) => void): (() => void) => {
+    const listener = (_e: unknown, state: UpdaterState): void => callback(state)
+    ipcRenderer.on('updater:state', listener)
+    return () => ipcRenderer.removeListener('updater:state', listener)
   }
 }
 
